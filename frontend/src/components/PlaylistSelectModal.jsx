@@ -58,7 +58,7 @@ export default function PlaylistSelectModal({
             type="button"
             onClick={onClose}
             aria-label="Cerrar"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#8D93A6] transition-colors hover:bg-[#FFFFFF]/10 hover:text-[#E9EAF0]"
+            className="btn-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#8D93A6] transition-colors hover:bg-[#FFFFFF]/10 hover:text-[#E9EAF0]"
           >
             <X size={16} strokeWidth={2} />
           </button>

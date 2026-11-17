@@ -193,7 +193,10 @@ def main() -> None:
         print("[startup] slskd no disponible ahora mismo; podrás configurarlo desde la interfaz.")
 
     print("[startup] Iniciando el servidor local...")
-    state.slskd.start_from_config()
+    try:
+        state.slskd.start_from_config()
+    except Exception as exc:
+        print(f"[startup] slskd no pudo iniciarse: {exc}")
 
     def _run_server() -> None:
         app.run(debug=False, use_reloader=False, host=host, port=port)

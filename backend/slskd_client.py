@@ -23,6 +23,7 @@ import requests
 from backend.database import complete_download, set_playlist_track_status
 from backend.fs_utils import safe_dirname
 from backend.library_service import write_audio_metadata
+from backend.paths import data_dir
 
 if TYPE_CHECKING:
     from backend.runtime import RuntimeState
@@ -60,6 +61,8 @@ class SlskdClient:
         self.pending_metadata: dict[tuple[str, str], dict[str, str]] = {}
         # Credenciales con las que se lanzó el proceso slskd actual (o None).
         self._running_credentials: tuple[str, str] | None = None
+        # Handle del log de salida de slskd (data/slskd.log) para diagnósticos.
+        self._log_handle = None
 
     # ------------------------------------------------------------------
     # Configuration / process management
@@ -103,7 +106,12 @@ class SlskdClient:
         incomplete_dir = os.path.join(previews_dir, ".incomplete")
         webroot_dir = os.path.join(os.path.dirname(path), "wwwroot")
         os.makedirs(incomplete_dir, exist_ok=True)
-        os.makedirs(webroot_dir, exist_ok=True)
+        try:
+            os.makedirs(webroot_dir, exist_ok=True)
+        except OSError:
+            # slskd corre --headless: la webroot es opcional y el directorio
+            # puede ser de solo lectura (p. ej. Program Files).
+            pass
         api_key = self._ensure_api_key()
         username = soulseek_username or self.state.config_store.get_secret("soulseek_username") or ""
         password = soulseek_password or self.state.config_store.get_secret("soulseek_password") or ""
@@ -120,18 +128,36 @@ class SlskdClient:
                 "SLSKD__WEB__AUTHENTICATION__API_KEYS__SOULSEEK_WEB__CIDR": "127.0.0.1/32,::1/128",
             }
         )
+        self._close_log_handle()
+        log_handle = None
+        try:
+            log_handle = open(data_dir() / "slskd.log", "a", encoding="utf-8", errors="replace")
+            log_handle.write(f"\n=== arranque slskd {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            log_handle.flush()
+        except OSError:
+            log_handle = None
         self.process = subprocess.Popen(
             [path, "--headless", "--downloads", previews_dir, "--incomplete", incomplete_dir],
             env=environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_handle if log_handle else subprocess.DEVNULL,
+            stderr=subprocess.STDOUT if log_handle else subprocess.DEVNULL,
         )
+        self._log_handle = log_handle
         self._running_credentials = (username, password)
         self.state.logs.add("[slskd] Servicio iniciado desde la configuración local")
         return True
 
+    def _close_log_handle(self) -> None:
+        if self._log_handle:
+            try:
+                self._log_handle.close()
+            except OSError:
+                pass
+            self._log_handle = None
+
     def stop(self) -> None:
         if not self.process or self.process.poll() is not None:
+            self._close_log_handle()
             return
         self.process.terminate()
         try:
@@ -140,6 +166,7 @@ class SlskdClient:
             self.process.kill()
             self.process.wait()
         self._running_credentials = None
+        self._close_log_handle()
 
     def ensure_available(self, wait_seconds: float = 8) -> bool:
         """Start the configured slskd and wait briefly for its HTTP API to listen."""

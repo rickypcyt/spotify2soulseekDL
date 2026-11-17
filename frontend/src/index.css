@@ -110,6 +110,24 @@ button:disabled {
   opacity: 0.55;
 }
 
+/*
+ * Icon-only buttons (tab close/refresh, etc.) opt out of the global form
+ * chrome above: sin esa excepción, el padding global aplasta el icono a 0px
+ * dentro de botones de tamaño fijo y el border/background forzados pintan
+ * una caja vacía.
+ */
+button.btn-icon {
+  min-height: 0;
+  padding: 0;
+  border: none !important;
+  background-color: transparent !important;
+}
+
+button.btn-icon:hover:not(:disabled) {
+  border-color: transparent !important;
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
 
 /* ==========================================================================
    Inputs

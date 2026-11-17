@@ -112,7 +112,14 @@ export default function PlaylistSession({
       setSearches(cachedSearches)
       setTracks(loaded)
       setSelected(new Set(loaded.map((_, i) => i)))
-      if (data.source !== 'soulseek') {
+      if (data.source === 'soulseek') {
+        // En "Soulseek directo" el texto ya es la query: lanzar la búsqueda
+        // al cargar la card para no tener que pulsar "buscar" otra vez.
+        loaded.forEach((track, i) => {
+          const q = (track.search_query || '').trim()
+          if (q) searchTrack(i, q)
+        })
+      } else {
         onHistoryAdd?.({ url: session.url, name: data.playlist_name || session.url })
       }
     } catch (err) {
@@ -120,7 +127,7 @@ export default function PlaylistSession({
     } finally {
       setLoading(false)
     }
-  }, [loading, session.url, session.provider, resetSearches, resetDownloads, setSearches, onHistoryAdd])
+  }, [loading, session.url, session.provider, resetSearches, resetDownloads, setSearches, onHistoryAdd, searchTrack])
 
   // ---- bootstrap: restaurar snapshot o cargar desde el origen ----
   // StrictMode ejecuta el efecto dos veces: la promesa del snapshot se guarda
@@ -391,6 +398,7 @@ export default function PlaylistSession({
       )}
       <TrackList
         tracks={tracks}
+        singleColumn={session.provider === 'soulseek'}
         localPlaylists={localPlaylists}
         formatFilters={formatFilters}
         loading={loading}

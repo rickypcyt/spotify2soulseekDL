@@ -194,6 +194,10 @@ export default function SourceInput({
         {soundcloudMessage && <p className="mt-2 text-sm text-slate-300">{soundcloudMessage}</p>}
       </div>
       <div className="mt-5 rounded-md border border-[#2C303D] bg-[#161822] p-3">
+        <div className="mb-2">
+          <p className="text-sm font-medium text-slate-100">YouTube · FLAC</p>
+          <p className="mt-1 text-xs text-slate-400">Descarga videos con yt-dlp.</p>
+        </div>
         <form onSubmit={handleYouTubeDownload} className="flex flex-col gap-3 sm:flex-row">
           <input
             type="text"

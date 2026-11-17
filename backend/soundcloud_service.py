@@ -9,7 +9,14 @@ import sys
 import time
 from pathlib import Path
 
-from backend.youtube_service import YouTubeServiceError, _download_error, _find_ytdlp
+from backend.youtube_service import (
+    YouTubeServiceError,
+    _download_error,
+    _ffmpeg_location,
+    _find_ytdlp,
+    _update_ytdlp,
+    ensure_ytdlp,
+)
 
 
 class SoundCloudServiceError(RuntimeError):
@@ -55,7 +62,7 @@ def _run_bundled_lucida(args: list[str]) -> str:
 def _download_soundcloud_track(url: str, output_dir: Path) -> str:
     start_time = time.time()
     try:
-        ytdlp = _find_ytdlp()
+        ytdlp = ensure_ytdlp()
     except YouTubeServiceError as exc:
         raise SoundCloudServiceError(str(exc)) from exc
     template = str(output_dir / "%(title)s.flac")
@@ -75,8 +82,14 @@ def _download_soundcloud_track(url: str, output_dir: Path) -> str:
         template,
         url,
     ]
+    ffmpeg = _ffmpeg_location()
+    if ffmpeg:
+        command[1:1] = ["--ffmpeg-location", ffmpeg]
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=600, check=False)
+        if result.returncode != 0 and _update_ytdlp(ytdlp):
+            command[0] = _find_ytdlp()
+            result = subprocess.run(command, capture_output=True, text=True, timeout=600, check=False)
     except subprocess.TimeoutExpired as exc:
         raise SoundCloudServiceError("La descarga de SoundCloud tardó demasiado.") from exc
     if result.returncode != 0:

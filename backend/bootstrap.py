@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import zipfile
 from pathlib import Path
 
 import requests
 
-from backend.paths import slskd_dir, slskd_exe_path
+from backend.paths import app_root, is_frozen, slskd_dir
 
 SLSKD_VERSION = "0.26.0"
 SLSKD_URL = (
@@ -108,6 +109,32 @@ def download_slskd(progress_prefix: str = "") -> Path | None:
     return exe
 
 
+def _stage_bundled_slskd(found: Path) -> Path:
+    """Copia el slskd empaquetado dentro del bundle (_MEIPASS) junto al .exe.
+
+    En modo onefile _MEIPASS es una carpeta temporal distinta en cada arranque
+    y un blanco habitual del antivirus; una copia estable junto al exe evita
+    que ``slskd_path`` quede apuntando a una ruta muerta al reiniciar.
+    """
+    if not is_frozen():
+        return found
+    try:
+        if app_root() not in found.resolve().parents:
+            return found  # no viene del bundle: nada que copiar
+        target_dir = slskd_dir()
+        target = target_dir / "slskd.exe"
+        if found.resolve() == target.resolve():
+            return found
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if not target.exists() or target.stat().st_size != found.stat().st_size:
+            shutil.copy2(found, target)
+            print(f"[bootstrap] slskd copiado a {target}")
+        return target
+    except OSError as exc:
+        print(f"[bootstrap] No se pudo copiar slskd junto al exe: {exc}")
+        return found
+
+
 def ensure_slskd(config_store) -> Path | None:
     """Ensure slskd.exe is available and configured.
 
@@ -128,10 +155,13 @@ def ensure_slskd(config_store) -> Path | None:
     # 2. Search common locations before downloading.
     found = search_slskd_everywhere()
     if found:
-        wwwroot = found.parent / "wwwroot"
-        wwwroot.mkdir(parents=True, exist_ok=True)
-        config_store.update({"slskd_path": str(found), "provider": "slskd"})
-        return found
+        staged = _stage_bundled_slskd(found)
+        try:
+            (staged.parent / "wwwroot").mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        config_store.update({"slskd_path": str(staged), "provider": "slskd"})
+        return staged
 
     # 3. Download as last resort.
     exe = download_slskd(progress_prefix="[bootstrap] ")
@@ -139,8 +169,10 @@ def ensure_slskd(config_store) -> Path | None:
         return None
 
     # Create wwwroot next to slskd.exe (slskd expects it).
-    wwwroot = exe.parent / "wwwroot"
-    wwwroot.mkdir(parents=True, exist_ok=True)
+    try:
+        (exe.parent / "wwwroot").mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
 
     config_store.update({"slskd_path": str(exe), "provider": "slskd"})
     return exe

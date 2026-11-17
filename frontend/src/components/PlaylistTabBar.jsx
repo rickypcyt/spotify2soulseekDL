@@ -32,7 +32,7 @@ export default function PlaylistTabBar({ tabs, activeKey, meta = {}, onSelect, o
             {busy
               ? <LoaderCircle size={12} className="shrink-0 animate-spin text-[#7FD8CC]" />
               : activity > 0
-                ? <LoaderCircle size={12} className="shrink-0 animate-spin text-[#565C6E]" />
+                ? <LoaderCircle size={12} className="shrink-0 animate-spin text-[#8D93A6]" />
                 : null}
             <span style={{ fontFamily: FONT_MONO }}>
               {label}
@@ -50,7 +50,7 @@ export default function PlaylistTabBar({ tabs, activeKey, meta = {}, onSelect, o
                 event.stopPropagation()
                 onRefresh(tab.key)
               }}
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-[#3A3F4E] hover:text-[#FFFFFF] ${isActive ? 'text-[#8D93A6]' : 'text-[#565C6E]'}`}
+              className="btn-icon flex h-5 w-5 shrink-0 items-center justify-center rounded text-[#8D93A6] transition-colors hover:bg-[#3A3F4E] hover:text-[#FFFFFF]"
             >
               <RefreshCw size={11} />
             </button>
@@ -62,7 +62,7 @@ export default function PlaylistTabBar({ tabs, activeKey, meta = {}, onSelect, o
                 event.stopPropagation()
                 onClose(tab.key)
               }}
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-[#3A3F4E] hover:text-[#FFFFFF] ${isActive ? 'text-[#8D93A6]' : 'text-[#565C6E]'}`}
+              className="btn-icon flex h-5 w-5 shrink-0 items-center justify-center rounded text-[#8D93A6] transition-colors hover:bg-[#3A3F4E] hover:text-[#FFFFFF]"
             >
               <X size={11} />
             </button>

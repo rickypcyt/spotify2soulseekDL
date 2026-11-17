@@ -5,6 +5,7 @@ import TrackCard from './TrackCard'
 
 export default function TrackList({
   tracks,
+  singleColumn = false,
   localPlaylists,
   formatFilters,
   loading,
@@ -47,10 +48,11 @@ export default function TrackList({
   onCancelSearch,
 }) {
   const [activeEmbedIndex, setActiveEmbedIndex] = useState(null)
+  const gridClass = singleColumn ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-1 gap-4 xl:grid-cols-2'
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2" aria-label="Cargando pistas">
+      <div className={gridClass} aria-label="Cargando pistas">
         {Array.from({ length: 6 }, (_, index) => <TrackCardSkeleton key={index} />)}
       </div>
     )
@@ -190,7 +192,7 @@ export default function TrackList({
             <span>Descargadas · {downloadedCount}</span>
             <ChevronDown size={14} className="shrink-0 transition-transform duration-150 group-open:rotate-180" />
           </summary>
-          <div className="grid grid-cols-1 gap-4 border-t border-[#2C303D] p-3 xl:grid-cols-2">
+          <div className={`${gridClass} border-t border-[#2C303D] p-3`}>
             {downloadedTracks.map(renderCard)}
           </div>
         </details>
@@ -203,7 +205,7 @@ export default function TrackList({
             <span>Ignoradas · {ignoredCount}</span>
             <ChevronDown size={14} className="shrink-0 transition-transform duration-150 group-open:rotate-180" />
           </summary>
-          <div className="grid grid-cols-1 gap-4 border-t border-[#2C303D] p-3 xl:grid-cols-2">
+          <div className={`${gridClass} border-t border-[#2C303D] p-3`}>
             {ignoredList.map(renderCard)}
           </div>
         </details>
@@ -215,7 +217,7 @@ export default function TrackList({
           <h3 className="mb-3 text-xs font-medium uppercase tracking-[0.14em] text-[#8D93A6]">
             Pendientes · {pendingTracks.length}
           </h3>
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className={gridClass}>
             {pendingTracks.map(renderCard)}
           </div>
         </div>
