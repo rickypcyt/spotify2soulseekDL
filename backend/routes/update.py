@@ -12,11 +12,9 @@ from flask import Blueprint, jsonify
 from backend.paths import is_frozen
 from backend.updater import (
     check_latest_release,
-    download_exe,
-    relaunch,
+    launch_update_script,
+    prepare_update,
     stop_other_instances,
-    swap_running_exe,
-    target_exe_path,
 )
 from backend.version import APP_VERSION
 
@@ -49,24 +47,20 @@ def create_blueprint(state: RuntimeState) -> Blueprint:
         if not info["update_available"]:
             return jsonify({"ok": True, "updated": False, "message": "Ya estás en la última versión."})
         if not info["download_url"]:
-            return jsonify({"error": "El release no incluye spotify2soulseek.exe."}), 502
+            return jsonify({"error": "El release no incluye el zip de la aplicación."}), 502
 
-        target = target_exe_path()
-        tmp = target.with_name(target.name + ".new")
-        if not download_exe(info["download_url"], tmp):
+        script = prepare_update(info)
+        if script is None:
             return jsonify({"error": "Falló la descarga de la actualización."}), 502
 
         def _restart() -> None:
             time.sleep(1.5)  # dar tiempo a que la respuesta llegue al cliente
-            if swap_running_exe(tmp) is None:
-                return
             try:
                 state.slskd.stop()
             except Exception:
                 pass
-            stop_other_instances(target.name)
-            time.sleep(0.5)
-            relaunch(target)
+            stop_other_instances("spotify2soulseek.exe")
+            launch_update_script(script)
             os._exit(0)
 
         threading.Thread(target=_restart, daemon=True).start()

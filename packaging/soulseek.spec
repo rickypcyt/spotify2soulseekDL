@@ -2,7 +2,7 @@
 r"""PyInstaller spec for the Spotify → Soulseek desktop app.
 
 Build with:  pyinstaller packaging/soulseek.spec
-Or via:      .\start.ps1
+Or via:      .\build.ps1
 """
 
 import os
@@ -59,23 +59,33 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# Carpeta (onedir) en vez de un solo .exe: arranca en segundos porque no hay que
+# descomprimir ~150 MB en una carpeta temporal en cada inicio, y el antivirus no
+# reescanea todo cada vez. Sin UPX: reduce falsos positivos de antivirus.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="spotify2soulseek",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
+    upx=False,
     console=True,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     icon=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="spotify2soulseek",
 )

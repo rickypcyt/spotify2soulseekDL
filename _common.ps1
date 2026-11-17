@@ -3,7 +3,11 @@ $ErrorActionPreference = "Stop"
 $Root = $PSScriptRoot
 $FrontendDir = Join-Path $Root "frontend"
 $DistDir = Join-Path $FrontendDir "dist"
-$ExePath = Join-Path $Root "dist\spotify2soulseek.exe"
+# La app se empaqueta como carpeta (onedir): dist\spotify2soulseek\spotify2soulseek.exe
+$AppDir = Join-Path $Root "dist\spotify2soulseek"
+$ExePath = Join-Path $AppDir "spotify2soulseek.exe"
+# Datos del usuario junto al exe (igual que en el PC de quien lo use).
+$AppDataDir = Join-Path $AppDir "data"
 $RequirementsPath = Join-Path $Root "config\requirements.txt"
 $SpecPath = Join-Path $Root "packaging\soulseek.spec"
 $VenvDir = Join-Path $Root ".venv"
@@ -96,4 +100,20 @@ function Update-Frontend([switch]$Force) {
         if ($LASTEXITCODE -ne 0) { throw "Falló el build del frontend." }
     } finally { Pop-Location }
     if (-not (Test-Path $distIndex)) { throw "No se encontró frontend/dist tras el build." }
+}
+
+# Versiones anteriores (un solo .exe) guardaban los datos en dist\data: se mueven
+# una vez a la carpeta de la app para que dev.ps1 y el exe compartan la misma base.
+function Initialize-AppData {
+    $legacy = Join-Path $Root "dist\data"
+    if ((Test-Path $legacy) -and -not (Test-Path $AppDataDir)) {
+        New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
+        try {
+            Move-Item -Path $legacy -Destination $AppDataDir -ErrorAction Stop
+            Write-Host "Datos movidos de dist\data a $AppDataDir"
+        } catch {
+            # Suele pasar si dev.ps1 o la app están abiertos (la base de datos está en uso).
+            Write-Warning "No se pudo mover dist\data (¿está abierta la app o dev.ps1?). Se reintentará la próxima vez."
+        }
+    }
 }

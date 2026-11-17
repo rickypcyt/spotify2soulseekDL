@@ -18,8 +18,9 @@ if (-not (Test-Path (Join-Path $FrontendDir "node_modules"))) {
     } finally { Pop-Location }
 }
 
-# Misma base de datos que el exe: los datos viven en dist/data.
-$env:SOULSEEK_DATA_DIR = Join-Path $Root "dist\data"
+# Misma base de datos que el exe empaquetado.
+Initialize-AppData
+$env:SOULSEEK_DATA_DIR = $AppDataDir
 # El navegador lo abre Vite (puerto 5173), no el backend (que serviría un build viejo).
 $env:SOULSEEK_NO_BROWSER = "1"
 Stop-SoulseekProcesses

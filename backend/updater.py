@@ -1,22 +1,25 @@
 """Self-update against GitHub releases.
 
 The app queries the latest release of the repository, compares it against
-``APP_VERSION`` and, when a newer build exists, downloads the replacement
-``spotify2soulseek.exe`` and swaps it in place.
+``APP_VERSION`` and, when a newer build exists, downloads the release zip
+(the whole ``spotify2soulseek`` folder: exe + ``_internal``).
 
-Windows note: a running .exe cannot be overwritten, but it *can* be renamed.
-The swap therefore renames the running exe to ``<name>.old``, moves the new
-file into its place and relaunches it — the same trick ``uv self update``
-uses. Leftover ``.old``/``.new`` files are cleaned on next startup.
+Windows note: the running exe and its DLLs are locked while the app runs, so
+the files cannot be replaced from inside. The update is extracted next to the
+app and a small ``.cmd`` script waits for this process to exit, copies the new
+files over the old ones (``robocopy /E``: user data such as ``data/``, slskd,
+yt-dlp or deno is never deleted), relaunches the app and removes itself.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 import requests
@@ -27,7 +30,11 @@ from backend.version import APP_VERSION
 GITHUB_REPO = "rickypcyt/soulseek-spotify2csv-downloader"
 LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 EXE_ASSET_NAME = "spotify2soulseek.exe"
+ZIP_ASSET_NAME = "spotify2soulseek-windows.zip"
 _UPDATE_SUFFIXES = (".old", ".new")
+_UPDATE_DIR = "_update_new"
+_UPDATE_ZIP = "_update.zip"
+_UPDATE_SCRIPT = "_update.cmd"
 
 
 def console_print(msg: str) -> None:
@@ -83,7 +90,7 @@ def check_latest_release(timeout: float = 10.0) -> dict | None:
     tag = data.get("tag_name", "")
     download_url = ""
     for asset in data.get("assets", []):
-        if asset.get("name") == EXE_ASSET_NAME:
+        if asset.get("name") == ZIP_ASSET_NAME:
             download_url = asset.get("browser_download_url", "")
             break
     return {
@@ -137,7 +144,7 @@ def target_exe_path() -> Path:
     """
     if is_frozen():
         return Path(sys.executable).resolve()
-    return exe_dir() / "dist" / EXE_ASSET_NAME
+    return exe_dir() / "dist" / "spotify2soulseek" / EXE_ASSET_NAME
 
 
 def cleanup_stale_files() -> None:
@@ -154,6 +161,14 @@ def cleanup_stale_files() -> None:
                 stale.unlink()
         except OSError:
             pass
+    # Restos de una actualización interrumpida.
+    folder = target.parent
+    for name in (_UPDATE_ZIP, _UPDATE_SCRIPT):
+        try:
+            (folder / name).unlink(missing_ok=True)
+        except OSError:
+            pass
+    shutil.rmtree(folder / _UPDATE_DIR, ignore_errors=True)
 
 
 def swap_running_exe(new_exe: Path) -> Path | None:
@@ -257,21 +272,78 @@ def show_update_dialog(title: str, text: str, error: bool = False) -> None:
         pass
 
 
-def install_release_exe(info: dict) -> Path | None:
-    """Descarga el exe del release y lo intercambia por el que está corriendo.
+def _extract_release(zip_path: Path, dest: Path) -> Path | None:
+    """Descomprime el zip y devuelve la carpeta que contiene el exe."""
+    shutil.rmtree(dest, ignore_errors=True)
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            archive.extractall(dest)
+    except (OSError, zipfile.BadZipFile) as exc:
+        console_print(f"[update] El archivo descargado no es válido: {exc}")
+        return None
+    # El zip puede traer la carpeta "spotify2soulseek/" o los archivos sueltos.
+    for candidate in (dest, *[p for p in dest.iterdir() if p.is_dir()]):
+        if (candidate / EXE_ASSET_NAME).is_file():
+            return candidate
+    console_print(f"[update] El zip no contiene {EXE_ASSET_NAME}.")
+    return None
 
-    Devuelve la ruta del exe instalado, o ``None`` si algo falló. El caller
-    debe cerrar las demás instancias, relanzar ``relaunch(path)`` y salir
-    del proceso actual a continuación.
+
+def prepare_update(info: dict) -> Path | None:
+    """Descarga y descomprime el release junto a la app y escribe el script que
+    lo instala. Devuelve la ruta del script, o ``None`` si algo falló.
+
+    El caller debe cerrar las demás instancias, lanzar ``launch_update_script``
+    y salir del proceso actual a continuación.
     """
     console_print(f"[update] Actualizando v{info['current']} -> v{info['latest']}...")
     target = target_exe_path()
-    tmp = target.with_name(target.name + ".new")
-    if not download_exe(info["download_url"], tmp):
+    app_dir = target.parent
+    zip_path = app_dir / _UPDATE_ZIP
+    if not download_exe(info["download_url"], zip_path):
         return None
-    if swap_running_exe(tmp) is None:
+    source = _extract_release(zip_path, app_dir / _UPDATE_DIR)
+    if source is None:
         return None
-    return target
+    lines = [
+        "@echo off",
+        f"set PID={os.getpid()}",
+        ":wait",
+        # Rutas completas: si Git está en el PATH, "find"/"timeout" serían las de Unix.
+        'set SYS=%SystemRoot%\\System32',
+        '"%SYS%\\tasklist.exe" /FI "PID eq %PID%" /NH | "%SYS%\\findstr.exe" /C:" %PID% " >nul'
+        # ping como pausa de ~1 s: timeout.exe falla sin consola y el bucle giraría sin parar.
+        ' && ("%SYS%\\PING.EXE" -n 2 127.0.0.1 >nul & goto wait)',
+        f'robocopy "{source}" "{app_dir}" /E /R:5 /W:1 /NFL /NDL /NJH /NJS >nul',
+        f'rmdir /S /Q "{app_dir / _UPDATE_DIR}"',
+        f'del /Q "{zip_path}"',
+        f'start "" "{target}"',
+        # Borrarse a sí mismo sin el error "The batch file cannot be found".
+        '(goto) 2>nul & del "%~f0"',
+    ]
+    script = app_dir / _UPDATE_SCRIPT
+    # newline="" evita que Python vuelva a convertir los \r\n (quedaría "\r\r\n" y cmd
+    # leería un \r pegado a cada valor, por ejemplo al PID, y esperaría para siempre).
+    script.write_text(
+        "\r\n".join(lines) + "\r\n",
+        encoding="mbcs" if os.name == "nt" else "utf-8",
+        newline="",
+    )
+    return script
+
+
+def launch_update_script(script: Path) -> None:
+    """Lanza el script de instalación desacoplado de este proceso."""
+    creationflags = (
+        getattr(subprocess, "DETACHED_PROCESS", 0)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
+    subprocess.Popen(
+        ["cmd.exe", "/c", str(script)],
+        cwd=str(script.parent),
+        creationflags=creationflags,
+        close_fds=True,
+    )
 
 
 def cli_check_update() -> int:
@@ -302,33 +374,37 @@ def cli_self_update() -> int:
         return 0
     if not info["download_url"]:
         console_print(
-            f"[update] El release {info['latest']} no incluye {EXE_ASSET_NAME}."
+            f"[update] El release {info['latest']} no incluye {ZIP_ASSET_NAME}."
         )
         return 1
 
     if not is_frozen():
-        # Dev mode: refresh dist/spotify2soulseek.exe (nothing of ours is
-        # running from that file, only possibly a previous packaged build).
+        # Dev mode: refresca dist/spotify2soulseek/ (ahí no corre nada nuestro).
         console_print(f"[update] Actualizando v{info['current']} -> v{info['latest']}...")
         target = target_exe_path()
-        tmp = target.with_name(target.name + ".new")
-        if not download_exe(info["download_url"], tmp):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        zip_path = target.parent / _UPDATE_ZIP
+        if not download_exe(info["download_url"], zip_path):
+            return 1
+        source = _extract_release(zip_path, target.parent / _UPDATE_DIR)
+        if source is None:
             return 1
         stop_other_instances(EXE_ASSET_NAME)
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(tmp, target)
+            shutil.copytree(source, target.parent, dirs_exist_ok=True)
         except OSError as exc:
-            console_print(f"[update] No se pudo escribir {target}: {exc}")
+            console_print(f"[update] No se pudo escribir {target.parent}: {exc}")
             return 1
-        console_print(f"[update] Actualizado a v{info['latest']} en {target}")
+        finally:
+            shutil.rmtree(target.parent / _UPDATE_DIR, ignore_errors=True)
+            zip_path.unlink(missing_ok=True)
+        console_print(f"[update] Actualizado a v{info['latest']} en {target.parent}")
         return 0
 
-    target = install_release_exe(info)
-    if target is None:
+    script = prepare_update(info)
+    if script is None:
         return 1
-    stop_other_instances(target.name)
-    time.sleep(0.5)  # dejar que las instancias anteriores liberen el puerto
-    relaunch(target)
-    console_print(f"[update] Actualizado a v{info['latest']}. Reiniciando...")
+    stop_other_instances(target_exe_path().name)
+    launch_update_script(script)
+    console_print(f"[update] Instalando v{info['latest']}. La app se reabrirá sola...")
     return 0

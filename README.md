@@ -114,7 +114,7 @@ dist\spotify2soulseek.exe --check-update   # consulta si hay una versión más n
 dist\spotify2soulseek.exe --update         # descarga e instala la última versión y reinicia
 ```
 
-Al arrancar, la app comprueba en segundo plano si hay una versión más nueva en GitHub. En el exe empaquetado muestra una **ventana de Windows** preguntando si quieres instalarla; si aceptas, se descarga, se instala y la app se reinicia sola. Si respondes que no, esa versión no se vuelve a preguntar. El check se desactiva con `--no-update-check` o `SOULSEEK_NO_UPDATE_CHECK=1`. En modo desarrollo (`python -m backend.spotify_web --update`) la descarga reemplaza `dist/spotify2soulseek.exe`.
+Al arrancar, la app comprueba en segundo plano si hay una versión más nueva en GitHub. En el exe empaquetado muestra una **ventana de Windows** preguntando si quieres instalarla; si aceptas, se descarga, se instala y la app se reinicia sola. Si respondes que no, esa versión no se vuelve a preguntar. El check se desactiva con `--no-update-check` o `SOULSEEK_NO_UPDATE_CHECK=1`. En modo desarrollo (`python -m backend.spotify_web --update`) la descarga reemplaza la carpeta `dist/spotify2soulseek/`. Los releases se publican como `spotify2soulseek-windows.zip` (la carpeta completa de la app).
 
 Para publicar una versión nueva, pushea un tag `v*` (p.ej. `git tag v1.1.0 && git push origin v1.1.0`): el workflow `.github/workflows/release.yml` compila el exe y lo publica como asset `spotify2soulseek.exe` en GitHub Releases, con `APP_VERSION` igual al tag. También puede lanzarse manualmente desde *Actions → Release* indicando el tag.
 

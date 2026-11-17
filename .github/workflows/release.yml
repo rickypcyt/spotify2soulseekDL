@@ -1,4 +1,4 @@
-# Publica un GitHub Release con dist/spotify2soulseek.exe.
+# Publica un GitHub Release con dist/spotify2soulseek-windows.zip (carpeta de la app).
 #
 # - Push a `main`: lee APP_VERSION de backend/version.py y, si el tag vX.Y.Z
 #   todavía no existe, compila y publica el release. Para sacar una versión nueva,
@@ -96,13 +96,29 @@ jobs:
           Set-Content backend/version.py "APP_VERSION = `"$version`""
           Write-Host "Stamped APP_VERSION = $version"
 
-      - name: Package executable
+      - name: Package application (onedir)
         run: python -m PyInstaller packaging/soulseek.spec --noconfirm --clean
+
+      # yt-dlp y deno junto al exe: el PC de destino no descarga nada en el primer uso.
+      - name: Bundle yt-dlp and deno
+        shell: pwsh
+        run: |
+          python -c "from backend.youtube_service import _download_ytdlp, _download_deno; _download_ytdlp(); _download_deno()"
+          foreach ($tool in @("yt-dlp.exe", "deno.exe")) {
+            $source = "vendor/yt-dlp/$tool"
+            if (-not (Test-Path $source)) { throw "No se pudo obtener $tool" }
+            Copy-Item $source "dist/spotify2soulseek/$tool"
+          }
+
+      # El auto-actualizador de la app descarga exactamente este nombre.
+      - name: Create zip
+        shell: pwsh
+        run: Compress-Archive -Path dist/spotify2soulseek -DestinationPath dist/spotify2soulseek-windows.zip
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
           target_commitish: ${{ github.sha }}
-          files: dist/spotify2soulseek.exe
+          files: dist/spotify2soulseek-windows.zip
           generate_release_notes: true

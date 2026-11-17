@@ -26,8 +26,8 @@ from backend.updater import (
     cli_check_update,
     cli_self_update,
     console_print,
-    install_release_exe,
-    relaunch,
+    launch_update_script,
+    prepare_update,
     show_update_dialog,
     stop_other_instances,
 )
@@ -109,8 +109,8 @@ def _check_updates_background() -> None:
         if not ask_update_dialog(info):
             state.config_store.update({"skipped_update_version": info["latest"]})
             return
-        target = install_release_exe(info)
-        if target is None:
+        script = prepare_update(info)
+        if script is None:
             show_update_dialog(
                 "spotify2soulseek — Error de actualización",
                 "No se pudo instalar la nueva versión. "
@@ -122,10 +122,9 @@ def _check_updates_background() -> None:
             state.slskd.stop()
         except Exception:
             pass
-        stop_other_instances(target.name)
-        time.sleep(0.5)  # dejar que libere el puerto antes de relanzar
-        relaunch(target)
-        os._exit(0)
+        stop_other_instances("spotify2soulseek.exe")
+        launch_update_script(script)
+        os._exit(0)  # el script espera a que este proceso termine para copiar
 
     threading.Thread(target=_run, daemon=True).start()
 
