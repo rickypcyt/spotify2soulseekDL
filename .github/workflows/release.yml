@@ -1,28 +1,69 @@
-# Builda dist/spotify2soulseek.exe y lo publica como asset de un GitHub Release.
-# Se dispara al pushear un tag "v*" (p.ej. v1.2.3) o manualmente indicando el
-# tag. El exe empaquetado lleva APP_VERSION igual al tag, así que el
-# self-update compara contra el release.
+# Publica un GitHub Release con dist/spotify2soulseek.exe.
+#
+# - Push a `main`: lee APP_VERSION de backend/version.py y, si el tag vX.Y.Z
+#   todavía no existe, compila y publica el release. Para sacar una versión nueva,
+#   sube el número en backend/version.py. Si no cambió, no hace nada.
+# - Push de un tag `v*`, o ejecución manual con un tag: publica ese tag.
+#
+# El exe lleva APP_VERSION igual al tag, así que el self-update compara bien.
 
 name: Release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Versión a publicar (p.ej. v1.2.3)"
-        required: true
+        description: "Versión a publicar (p.ej. v1.2.3); vacío = leer backend/version.py"
+        required: false
 
 permissions:
   contents: write
 
-env:
-  TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
-
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      should_release: ${{ steps.resolve.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: resolve
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$REF_TYPE" = "tag" ]; then
+            tag="$REF_NAME"
+          elif [ -n "$INPUT_TAG" ]; then
+            tag="$INPUT_TAG"
+          else
+            version=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' backend/version.py)
+            tag="v$version"
+          fi
+          if [ "$EVENT" = "push" ] && [ "$REF_TYPE" = "branch" ] && git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "El tag $tag ya existe: no se publica nada. Sube el número en backend/version.py."
+            should=false
+          else
+            should=true
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "should_release=$should" >> "$GITHUB_OUTPUT"
+          echo "Tag: $tag (publicar: $should)"
+
   build:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: windows-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -62,5 +103,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
           files: dist/spotify2soulseek.exe
           generate_release_notes: true

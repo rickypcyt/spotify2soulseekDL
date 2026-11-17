@@ -36,9 +36,17 @@ def create_blueprint(state: RuntimeState) -> Blueprint:
             state.slskd.refresh_config()
             # slskd lee credenciales y carpeta de descargas solo al arrancar:
             # si cambiaron, hay que reiniciar el proceso o seguiría con valores viejos.
-            slskd_needs_restart = (
-                bool(data.get("soulseek_password"))
+            typed_password = str(data.get("soulseek_password") or "")
+            credentials_changed = (
+                bool(typed_password)
                 or saved.get("soulseek_username") != before.get("soulseek_username")
+            )
+            # Si las credenciales acaban de validarse, slskd ya corre con ellas: no reiniciar otra vez.
+            already_running = state.slskd.is_running_with(
+                str(saved.get("soulseek_username") or "").strip(), typed_password or None
+            )
+            slskd_needs_restart = (
+                (credentials_changed and not already_running)
                 or saved.get("slskd_path") != before.get("slskd_path")
                 or state.current_downloads_dir != before_downloads_dir
             )

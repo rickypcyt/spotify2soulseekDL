@@ -5,7 +5,7 @@ const SEARCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 let searchCacheSaveQueue = Promise.resolve()
 
 const PICK_MODES = ['quality', 'speed', 'longest', 'balanced']
-const FORMAT_PREFS = ['any', 'flac', 'mp3', 'ogg', 'm4a']
+const FORMAT_PREFS = ['any', 'mp3', 'wav', 'aiff', 'flac']
 const FORMAT_FILTERS = ['mp3', 'wav', 'aiff', 'flac']
 
 // ---- history ---------------------------------------------------------------

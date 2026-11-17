@@ -2,24 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ToastContainer, toast } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 import { request, requestJson } from './api/client'
-import AppFooter from './components/AppFooter'
 import AppNavbar from './components/AppNavbar'
-import ConfigurationStatus from './components/ConfigurationStatus'
 import LibraryPanel from './components/LibraryPanel'
 import LogsPanel from './components/LogsPanel'
 import PlaylistPicker from './components/PlaylistPicker'
 import PlaylistSession from './components/PlaylistSession'
+import PlayerBar from './components/PlayerBar'
 import PlaylistTabBar from './components/PlaylistTabBar'
-import RecommendConfig from './components/RecommendConfig'
+import { usePlayerState } from './player/usePlayer'
 import SettingsPanel from './components/SettingsPanel'
+import SoulseekAccountForm from './components/SoulseekAccountForm'
 import SourceInput from './components/SourceInput'
-import TemporalesPanel from './components/TemporalesPanel'
-import TransfersPanel from './components/TransfersPanel'
+import CoverPickerModal from './components/CoverPickerModal'
 import WelcomeWizard from './components/WelcomeWizard'
 import { FONT_BODY, isCompletedTransfer, isLibraryFile } from './constants'
 import {
   loadHistory,
-  loadLastPlaylist,
+  saveLastPlaylist,
   loadPlaylistTabs,
   loadSearchPreferences,
   saveHistory,
@@ -37,13 +36,74 @@ import { useTabNavigation } from './hooks/useTabNavigation'
 
 const playlistTabKey = (provider, url) => `${provider || 'spotify'}::${url}`
 
+// Identidad de una pestaña: la misma playlist de Spotify puede venir con distintos
+// enlaces (?si=…, spotify:playlist:…). Se compara por el id, no por el texto pegado.
+function tabIdentity(provider, url) {
+  const prov = provider || 'spotify'
+  const text = String(url || '').trim()
+  if (prov === 'spotify') {
+    const match = text.match(/playlist[/:]([A-Za-z0-9]{22})/)
+    return `spotify::${match ? match[1] : text}`
+  }
+  return `${prov}::${text.toLowerCase()}`
+}
+
+// Quita pestañas repetidas (misma identidad), conservando la primera.
+function dedupeTabs(tabs) {
+  const seen = new Set()
+  return tabs.filter((tab) => {
+    const id = tabIdentity(tab.provider, tab.url)
+    if (seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+}
+
+const SEARCH_PROVIDER_KEY = 'soulseek.searchProvider'
+
+// Último modo de búsqueda elegido (Spotify o Soulseek); por defecto Soulseek.
+function readStoredSearchProvider() {
+  try {
+    const value = window.localStorage.getItem(SEARCH_PROVIDER_KEY)
+    return value === 'spotify' || value === 'soulseek' ? value : 'soulseek'
+  } catch {
+    return 'soulseek'
+  }
+}
+
 function App() {
   const [bootstrapped, setBootstrapped] = useState(false)
   const [inputUrl, setInputUrl] = useState('')
-  const [searchProvider, setSearchProvider] = useState('spotify')
+  const [searchProvider, setSearchProvider] = useState(readStoredSearchProvider)
+  const [coverPicker, setCoverPicker] = useState(null)
+  const topBarRef = useRef(null)
+  const { now: nowPlaying } = usePlayerState()
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SEARCH_PROVIDER_KEY, searchProvider)
+    } catch {
+      // sin almacenamiento: el modo solo dura esta sesión
+    }
+  }, [searchProvider])
+
+  // Los encabezados pegajosos (p. ej. playlists de la biblioteca) se anclan justo
+  // debajo de la barra superior, así que necesitan conocer su alto real.
+  useEffect(() => {
+    const element = topBarRef.current
+    if (!element) return undefined
+    const update = () => {
+      document.documentElement.style.setProperty('--topbar-h', `${element.offsetHeight}px`)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [bootstrapped])
   const [urlHistory, setUrlHistory] = useState([])
   const [spotifyPlaylists, setSpotifyPlaylists] = useState([])
   const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false)
+  const [playlistsLoading, setPlaylistsLoading] = useState(false)
   // Carpeta elegida manualmente para una playlist (override del nombre).
   const [folderOverrides, setFolderOverrides] = useState(() => {
     try { return JSON.parse(localStorage.getItem('playlist_folder_overrides') || '{}') } catch { return {} }
@@ -61,7 +121,7 @@ function App() {
   const [activePlaylistKey, setActivePlaylistKey] = useState(null)
   const [tabRefreshTicks, setTabRefreshTicks] = useState({})
   const [sessionMeta, setSessionMeta] = useState({})
-  const [seededSnapshots, setSeededSnapshots] = useState({})
+  const [seededSnapshots] = useState({})
   const sessionHandlers = useRef({})
   const logRef = useRef(null)
 
@@ -69,30 +129,31 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [tabsData, playlist, history, prefs] = await Promise.all([
+      const [tabsData, history, prefs] = await Promise.all([
         loadPlaylistTabs(),
-        loadLastPlaylist(),
         loadHistory(),
         loadSearchPreferences(),
       ])
       if (cancelled) return
       if (tabsData.tabs.length > 0) {
-        setPlaylistTabs(tabsData.tabs)
-        const active = tabsData.tabs.some((t) => t.key === tabsData.active)
-          ? tabsData.active
-          : tabsData.tabs[0].key
+        const tabs = dedupeTabs(tabsData.tabs)
+        // Limpiar el estado guardado de las pestañas repetidas que se descartan.
+        tabsData.tabs
+          .filter((t) => !tabs.some((kept) => kept.key === t.key))
+          .forEach((t) => deletePlaylistSnapshot(t.key))
+        setPlaylistTabs(tabs)
+        const savedActive = tabsData.tabs.find((t) => t.key === tabsData.active)
+        const active = (savedActive
+          && tabs.find((t) => tabIdentity(t.provider, t.url) === tabIdentity(savedActive.provider, savedActive.url))?.key)
+          || tabs[0].key
         setActivePlaylistKey(active)
-        const activeTab = tabsData.tabs.find((t) => t.key === active)
+        const activeTab = tabs.find((t) => t.key === active)
         if (activeTab) setInputUrl(activeTab.url)
-      } else if (playlist.url) {
-        // Migración: la última playlist abierta se convierte en la primera tab.
-        const key = playlistTabKey(playlist.provider || 'spotify', playlist.url)
-        const tab = { key, url: playlist.url, provider: playlist.provider || 'spotify', name: playlist.playlist_name || '' }
-        setPlaylistTabs([tab])
-        setActivePlaylistKey(key)
-        setInputUrl(playlist.url)
-        setSeededSnapshots({ [key]: playlist })
       }
+      // Antes, si no había pestañas se "resucitaba" aquí la última playlist guardada
+      // por una versión antigua, y las pestañas cerradas volvían solas. Ese registro
+      // ya no se usa: se vacía para que no quede cache muerto.
+      saveLastPlaylist({})
       setUrlHistory(history)
       setPickMode(prefs.pickMode)
       setFormatPref(prefs.formatPref)
@@ -115,21 +176,29 @@ function App() {
 
   const {
     newLibraryFolderName, setNewLibraryFolderName, dragOverLibraryFolder, setDragOverLibraryFolder,
-    deleteItem, cleanupAll, cancelTransfer, saveTemporaryPreviewToLibrary, moveLibraryFile, renameLibraryFile, createLibraryFolder,
+    deleteItem, cleanupAll, cancelTransfer, saveTemporaryPreviewToLibrary, moveLibraryFile, renameLibraryFile, createLibraryFolder, deleteLibraryFolder,
   } = useLibraryOps({ fetchDiagnostics })
 
   // ---- playlist tabs ----
   const openPlaylist = useCallback((rawUrl, provider) => {
     const target = (rawUrl || '').trim()
     if (!target) return
-    const key = playlistTabKey(provider, target)
-    setPlaylistTabs((prev) => {
-      if (prev.some((t) => t.key === key)) return prev
-      return [...prev, { key, url: target, provider: provider || 'spotify', name: '' }]
-    })
+    const identity = tabIdentity(provider, target)
+    const existing = playlistTabs.find((t) => tabIdentity(t.provider, t.url) === identity)
+    const key = existing ? existing.key : playlistTabKey(provider, target)
+    if (!existing) {
+      setPlaylistTabs((prev) => (prev.some((t) => t.key === key)
+        ? prev
+        : [...prev, { key, url: target, provider: provider || 'spotify', name: '' }]))
+    }
+    // Una búsqueda de texto repetida reutiliza su pestaña (el estado de cada tab se
+    // identifica por su texto) pero se vuelve a lanzar, para que "buscar" siempre haga algo.
+    if (provider === 'soulseek') {
+      setTabRefreshTicks((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }))
+    }
     setActivePlaylistKey(key)
-    setInputUrl(target)
-  }, [])
+    setInputUrl(existing ? existing.url : target)
+  }, [playlistTabs])
 
   const selectPlaylistTab = useCallback((key) => {
     setActivePlaylistKey(key)
@@ -155,6 +224,17 @@ function App() {
     })
     deletePlaylistSnapshot(key)
   }, [playlistTabs, activePlaylistKey])
+
+  const closeAllPlaylistTabs = useCallback(() => {
+    playlistTabs.forEach((tab) => {
+      delete sessionHandlers.current[tab.key]
+      deletePlaylistSnapshot(tab.key)
+    })
+    setPlaylistTabs([])
+    setActivePlaylistKey(null)
+    setInputUrl('')
+    setSessionMeta({})
+  }, [playlistTabs])
 
   const refreshPlaylistTab = useCallback((key) => {
     setTabRefreshTicks((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }))
@@ -212,15 +292,31 @@ function App() {
     openPlaylist(inputUrl, searchProvider)
   }
 
-  const loadSpotifyPlaylists = async () => {
+  // El modal se abre al instante (con lo que haya en memoria) y la lista se
+  // refresca en segundo plano, así no hay que esperar a Spotify para verlo.
+  const fetchSpotifyPlaylists = useCallback(async ({ silent = false } = {}) => {
+    setPlaylistsLoading(true)
     try {
       const data = await requestJson('/api/spotify/playlists')
       setSpotifyPlaylists(data.playlists || [])
-      setPlaylistPickerOpen(true)
+      return true
     } catch (err) {
-      toast.error('No se pudieron cargar tus playlists: ' + err.message)
+      if (!silent) toast.error('No se pudieron cargar tus playlists: ' + err.message)
+      return false
+    } finally {
+      setPlaylistsLoading(false)
     }
+  }, [])
+
+  const loadSpotifyPlaylists = () => {
+    setPlaylistPickerOpen(true)
+    fetchSpotifyPlaylists()
   }
+
+  // Precarga silenciosa al conectar Spotify, para que el selector ya tenga datos.
+  useEffect(() => {
+    if (spotifyAuth.status === 'authenticated' && bootstrapped) fetchSpotifyPlaylists({ silent: true })
+  }, [spotifyAuth.status, bootstrapped, fetchSpotifyPlaylists])
 
   const embedCoverInFile = useCallback(async (path, coverUrl) => {
     try {
@@ -250,27 +346,20 @@ function App() {
     }
   }, [])
 
-  const searchAndEmbedCover = useCallback(async (path, dir = 'downloads') => {
-    try {
-      const response = await request('/api/library/cover/search-embed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, dir }),
-      })
-      const raw = await response.text()
-      let data = {}
-      try {
-        data = raw ? JSON.parse(raw) : {}
-      } catch {
-        throw new Error('El backend no reconoce esta operación. Reinicia la aplicación con .\\run.ps1.')
-      }
-      if (!response.ok || data.error) throw new Error(data.error || 'No se encontró portada')
+  // Abre el selector de portadas; la promesa se resuelve al cerrarlo (con o sin cambios).
+  const searchAndEmbedCover = useCallback((path, dir = 'downloads') => new Promise((resolve) => {
+    setCoverPicker({ path, dir, name: path.split('/').pop() || path, token: Date.now(), resolve })
+  }), [])
+
+  const closeCoverPicker = useCallback(async (applied) => {
+    const picker = coverPicker
+    setCoverPicker(null)
+    if (applied) {
       await Promise.all([fetchDiagnostics(), fetchLibraryIndex()])
-      toast.success('Portada encontrada y añadida al archivo')
-    } catch (error) {
-      toast.error(`No se pudo buscar la portada: ${error.message}`)
+      toast.success('Portada insertada en el archivo')
     }
-  }, [fetchDiagnostics, fetchLibraryIndex])
+    picker?.resolve?.()
+  }, [coverPicker, fetchDiagnostics, fetchLibraryIndex])
 
   const syncLibraryBpm = useCallback(async (path) => {
     try {
@@ -342,16 +431,6 @@ function App() {
     }
   }, [fetchDiagnostics, fetchLibraryIndex])
 
-  const selectHistory = async (selectedUrl) => {
-    const saved = urlHistory.find((item) => item.url === selectedUrl)
-    if (saved) setInputUrl(saved.url)
-  }
-
-  const clearHistory = () => {
-    setUrlHistory([])
-    saveHistory([])
-  }
-
   const storedFileUrl = (dir, path) =>
     `/api/file/download?dir=${encodeURIComponent(dir)}&path=${encodeURIComponent(path)}`
 
@@ -383,7 +462,7 @@ function App() {
     () => (diagnostics?.downloads || []).filter(isLibraryFile).sort((a, b) => a.path.localeCompare(b.path)),
     [diagnostics]
   )
-  const libraryFolders = diagnostics?.download_directories || []
+  const libraryFolders = useMemo(() => diagnostics?.download_directories || [], [diagnostics])
   const localPlaylists = [...new Set([
     ...libraryFolders,
     ...libraryFiles.map((file) => file.path),
@@ -461,12 +540,12 @@ function App() {
 
   return (
     <div
-      className="min-h-screen bg-[#10121A] text-[#E9EAF0]"
+      className={`min-h-screen bg-[#10121A] text-[#E9EAF0] ${nowPlaying ? 'pb-28' : ''}`}
       style={{ fontFamily: FONT_BODY }}
     >
       <div className="w-full px-5 py-8 sm:px-10 sm:py-10">
         {/* Barra superior fija: navegación + tabs de playlists siempre visibles */}
-        <div className="sticky top-0 z-30 mb-8 bg-[#10121A] pb-2">
+        <div ref={topBarRef} className="sticky top-0 z-30 mb-8 bg-[#10121A] pb-2">
           <AppNavbar
             activeTab={activeTab}
             navigate={navigate}
@@ -475,15 +554,19 @@ function App() {
             queuedDownloadCount={queuedDownloadCount}
             activeDownloadCount={activeDownloadCount}
             activeSearchCount={activeSearchCount}
+            statusProps={{ config, diagnostics, backendOnline, spotifyAuth, onStartSpotifyAuth: startSpotifyAuth }}
           />
-          <PlaylistTabBar
-            tabs={playlistTabs}
-            activeKey={activePlaylistKey}
-            meta={sessionMeta}
-            onSelect={selectPlaylistTab}
-            onClose={closePlaylistTab}
-            onRefresh={refreshPlaylistTab}
-          />
+          {activeTab === 'main' && (
+            <PlaylistTabBar
+              tabs={playlistTabs}
+              activeKey={activePlaylistKey}
+              meta={sessionMeta}
+              onSelect={selectPlaylistTab}
+              onClose={closePlaylistTab}
+              onCloseAll={closeAllPlaylistTabs}
+              onRefresh={refreshPlaylistTab}
+            />
+          )}
         </div>
 
         {activeTab === 'main' && (
@@ -497,9 +580,6 @@ function App() {
               spotifyAuthStatus={spotifyAuth.status}
               searchProvider={searchProvider}
               onSearchProviderChange={setSearchProvider}
-              urlHistory={urlHistory}
-              onSelectHistory={selectHistory}
-              onClearHistory={clearHistory}
               onDownloadCompleted={fetchDiagnostics}
               localPlaylists={localPlaylists}
               quickSaveLabel={activeSessionMeta?.quickSaveFolder || ''}
@@ -509,10 +589,19 @@ function App() {
               storedFileStreamUrl={storedFileStreamUrl}
               storedFileUrl={storedFileUrl}
               onRevealFile={(path) => revealFile(path, 'previews')}
+              recommendProps={{
+                pickMode,
+                onPickModeChange: setPickMode,
+                formatPref,
+                onFormatPrefChange: setFormatPref,
+                formatFilters,
+                onFormatFiltersChange: setFormatFilters,
+              }}
             />
             <PlaylistPicker
               open={playlistPickerOpen}
               playlists={spotifyPlaylists}
+              loading={playlistsLoading}
               onClose={() => setPlaylistPickerOpen(false)}
               onSelect={(playlistUrl) => {
                 setPlaylistPickerOpen(false)
@@ -522,13 +611,12 @@ function App() {
           </>
         )}
 
-        {(activeTab === 'settings' || activeTab === 'main') && (
-          <ConfigurationStatus
+        {activeTab === 'settings' && (
+          <SoulseekAccountForm
             config={config}
-            diagnostics={diagnostics}
-            backendOnline={backendOnline}
-            spotifyAuth={spotifyAuth}
-            onStartSpotifyAuth={startSpotifyAuth}
+            onChange={setConfig}
+            onValidate={validateSoulseek}
+            onSave={saveConfig}
           />
         )}
 
@@ -538,19 +626,7 @@ function App() {
             onChange={setConfig}
             onSave={saveConfig}
             saving={savingConfig}
-            onValidateSoulseek={validateSoulseek}
             open
-          />
-        )}
-
-        {activeTab === 'main' && (
-          <RecommendConfig
-            pickMode={pickMode}
-            onPickModeChange={setPickMode}
-            formatPref={formatPref}
-            onFormatPrefChange={setFormatPref}
-            formatFilters={formatFilters}
-            onFormatFiltersChange={setFormatFilters}
           />
         )}
 
@@ -595,42 +671,12 @@ function App() {
 
           {/* monitor column */}
           <div className={`${activeTab === 'main' ? 'hidden' : activeTab === 'logs' ? 'min-w-0 grid grid-cols-1 gap-4' : 'min-w-0 grid grid-cols-1 gap-4'}`}>
-            <div className={`${activeTab === 'library' ? 'flex min-w-0 h-64' : 'hidden'}`}>
-              <TransfersPanel
-                diagnostics={diagnostics}
-                activeTransfers={activeTransfers}
-                completedTransfers={completedTransfers}
-                completedTransfersOpen={completedTransfersOpen}
-                onToggleCompletedTransfers={setCompletedTransfersOpen}
-                onCancelTransfer={cancelTransfer}
-              />
-            </div>
-
-            <div className={`${activeTab === 'library' ? 'flex min-w-0' : 'hidden'}`}>
-              <TemporalesPanel
-                diagnostics={diagnostics}
-                onCleanupAll={cleanupAll}
-                previewFiles={previewFiles}
-                storedFileStreamUrl={storedFileStreamUrl}
-                onSaveTemporaryPreview={saveTemporaryPreviewToLibrary}
-                quickSaveLabel={activeSessionMeta?.quickSaveFolder || ''}
-                onQuickSave={quickSaveTempFromInput}
-                localPlaylists={localPlaylists}
-                onSearchCover={(path) => searchAndEmbedCover(path, 'previews')}
-                onRevealFile={(path) => revealFile(path, 'previews')}
-                onDeleteFile={deleteItem}
-              />
-            </div>
-
-            <div className={`${activeTab === 'logs' ? 'flex min-w-0' : 'hidden'}`}>
-              <LogsPanel ref={logRef} logs={logs} backendOnline={backendOnline} />
-            </div>
-
-            <div className={`${activeTab === 'library' ? 'flex min-w-0' : 'hidden'}`}>
+            <div className={`${activeTab === 'library' ? 'min-w-0' : 'hidden'}`}>
               <LibraryPanel
                 newLibraryFolderName={newLibraryFolderName}
                 onNewFolderNameChange={setNewLibraryFolderName}
                 onCreateFolder={createLibraryFolder}
+                onDeleteFolder={deleteLibraryFolder}
                 config={config}
                 onRefresh={refreshLibrary}
                 diagnostics={diagnostics}
@@ -656,11 +702,34 @@ function App() {
                 onMoveFile={moveLibraryFile}
                 storedFileStreamUrl={storedFileStreamUrl}
                 onDeleteFile={deleteItem}
+                transfersProps={{
+                  diagnostics,
+                  activeTransfers,
+                  completedTransfers,
+                  completedTransfersOpen,
+                  onToggleCompletedTransfers: setCompletedTransfersOpen,
+                  onCancelTransfer: cancelTransfer,
+                }}
+                temporalesProps={{
+                  diagnostics,
+                  onCleanupAll: cleanupAll,
+                  previewFiles,
+                  storedFileStreamUrl,
+                  onSaveTemporaryPreview: saveTemporaryPreviewToLibrary,
+                  localPlaylists,
+                  onSearchCover: (path) => searchAndEmbedCover(path, 'previews'),
+                  onRevealFile: (path) => revealFile(path, 'previews'),
+                  onDeleteFile: deleteItem,
+                }}
               />
             </div>
+
+            <div className={`${activeTab === 'logs' ? 'flex min-w-0' : 'hidden'}`}>
+              <LogsPanel ref={logRef} logs={logs} backendOnline={backendOnline} />
+            </div>
+
           </div>
         </div>
-        <AppFooter />
         {(() => {
           const setupIncomplete = !config.downloads_dir || !config.soulseek_username ||
             !config.spotify_client_id || !config.spotify_client_secret_configured
@@ -681,6 +750,8 @@ function App() {
             />
           )
         })()}
+        <CoverPickerModal picker={coverPicker} onClose={closeCoverPicker} />
+        <PlayerBar />
         <ToastContainer
           position="top-right"
           autoClose={6000}

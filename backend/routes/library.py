@@ -108,8 +108,12 @@ def create_blueprint(state: RuntimeState) -> Blueprint:
         data = request.get_json() or {}
         rel = str(data.get("path", "")).strip().lstrip("/\\")
         cover_url = str(data.get("cover_url", "")).strip()
+        dir_key = str(data.get("dir", "downloads")).strip()
         if not rel or not cover_url:
             return jsonify({"error": "Falta el archivo o la URL de portada"}), 400
+        if dir_key not in {"downloads", "previews"}:
+            return jsonify({"error": "Directorio inválido"}), 400
+        base_dir = state.current_downloads_dir if dir_key == "downloads" else state.previews_dir
         parsed = urlparse(cover_url)
         if parsed.scheme != "https" or not parsed.hostname or not (
             parsed.hostname == "scdn.co" or parsed.hostname.endswith(".scdn.co")
@@ -117,7 +121,7 @@ def create_blueprint(state: RuntimeState) -> Blueprint:
         ):
             return jsonify({"error": "La portada debe proceder de un dominio de imágenes de Spotify"}), 400
         try:
-            full = safe_join(state.current_downloads_dir, rel)
+            full = safe_join(base_dir, rel)
         except ValueError:
             return jsonify({"error": "Path inválido"}), 403
         if not os.path.isfile(full):
@@ -139,6 +143,63 @@ def create_blueprint(state: RuntimeState) -> Blueprint:
         except (OSError, ValueError) as exc:
             state.logs.add(f"[library] error al insertar portada: {exc}")
             return jsonify({"error": str(exc)}), 400
+
+    @bp.route("/api/library/cover/candidates", methods=["POST"])
+    def api_cover_candidates():
+        """Lista portadas candidatas para que el usuario elija antes de incrustar."""
+        data = request.get_json() or {}
+        rel = str(data.get("path", "")).strip().lstrip("/\\")
+        dir_key = str(data.get("dir", "downloads")).strip()
+        custom_query = str(data.get("query", "")).strip()
+        if not rel:
+            return jsonify({"error": "Falta el archivo"}), 400
+        if dir_key not in {"downloads", "previews"}:
+            return jsonify({"error": "Directorio inválido"}), 400
+        base_dir = state.current_downloads_dir if dir_key == "downloads" else state.previews_dir
+        try:
+            full = safe_join(base_dir, rel)
+        except ValueError:
+            return jsonify({"error": "Path inválido"}), 403
+        if not os.path.isfile(full):
+            return jsonify({"error": "El archivo no existe"}), 404
+
+        entry = _best_library_entry(rel) if dir_key == "downloads" else {}
+        track_name = str(entry.get("track_name", "")).strip()
+        artists = str(entry.get("artists", "")).strip()
+        if track_name or artists:
+            default_query = f"{track_name} {artists}".strip()
+        else:
+            stem = os.path.splitext(os.path.basename(rel))[0].replace("_", " ")
+            default_query = re.sub(r"\s+-\s+", " ", stem).strip()
+        query = custom_query or default_query
+
+        try:
+            candidates = state.spotify_auth.search_cover_candidates(query) if query else []
+            # Si el archivo ya está vinculado a una canción de Spotify, esa portada va primero.
+            track_key = str(entry.get("track_key", "")).strip()
+            if not custom_query and len(track_key) == 22 and ":" not in track_key:
+                try:
+                    linked = state.spotify_auth.get_track_metadata(track_key)
+                    linked_url = linked.get("cover_url", "")
+                    if linked_url:
+                        candidates = [c for c in candidates if c["cover_url"] != linked_url]
+                        candidates.insert(0, {
+                            "track_name": track_name,
+                            "artists": artists,
+                            "album": linked.get("album", ""),
+                            "year": "",
+                            "cover_url": linked_url,
+                            "thumb_url": linked_url,
+                            "linked": True,
+                        })
+                except Exception:
+                    pass
+            return jsonify({"ok": True, "query": query, "candidates": candidates})
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            state.logs.add(f"[library] error buscando portadas candidatas: {exc}")
+            return jsonify({"error": f"No se pudo consultar Spotify: {exc}"}), 502
 
     @bp.route("/api/library/cover/search-embed", methods=["POST"])
     def api_search_and_embed_library_cover():
@@ -309,6 +370,31 @@ def create_blueprint(state: RuntimeState) -> Blueprint:
             return jsonify({"ok": True, "folder": folder_name.replace("\\", "/")})
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
+
+    @bp.route("/api/library/folder/delete", methods=["POST"])
+    def api_library_folder_delete():
+        """Elimina una carpeta SOLO si está vacía (os.rmdir nunca borra contenido)."""
+        data = request.get_json() or {}
+        folder_name = str(data.get("folder_name", "")).strip().strip("/\\")
+        if not folder_name:
+            return jsonify({"error": "Falta el nombre de la carpeta"}), 400
+        first_part = folder_name.replace("\\", "/").split("/")[0].lower()
+        if first_part in {"temp", ".incomplete"}:
+            return jsonify({"error": "Esa carpeta es del sistema"}), 400
+        try:
+            folder = safe_join(state.current_downloads_dir, folder_name)
+        except ValueError:
+            return jsonify({"error": "Nombre de carpeta inválido"}), 400
+        if os.path.abspath(folder) == os.path.abspath(state.current_downloads_dir):
+            return jsonify({"error": "No se puede eliminar la carpeta principal"}), 400
+        if not os.path.isdir(folder):
+            return jsonify({"error": "La carpeta ya no existe"}), 404
+        try:
+            os.rmdir(folder)
+        except OSError:
+            return jsonify({"error": "La carpeta no está vacía: mueve o borra su contenido primero"}), 409
+        state.logs.add(f"[library] carpeta eliminada: {folder_name}")
+        return jsonify({"ok": True, "folder": folder_name.replace("\\", "/")})
 
     @bp.route("/api/library/rename", methods=["POST"])
     def api_library_rename():

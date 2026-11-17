@@ -52,7 +52,9 @@ def create_blueprint(state: RuntimeState) -> Blueprint:
         if os.name != "nt":
             return jsonify({"error": "Abrir el explorador está disponible en Windows"}), 501
         try:
-            subprocess.Popen(["explorer.exe", f"/select,{os.path.normpath(full)}"])
+            # Línea de comando completa: con una lista, Python escapa las comillas y
+            # Explorer no encuentra la ruta cuando tiene espacios.
+            subprocess.Popen(f'explorer.exe /select,"{os.path.normpath(full)}"')
             return jsonify({"ok": True})
         except OSError as exc:
             return jsonify({"error": str(exc)}), 500

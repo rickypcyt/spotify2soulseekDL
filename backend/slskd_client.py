@@ -257,6 +257,13 @@ class SlskdClient:
                 return False
             time.sleep(0.5)
 
+    def is_running_with(self, username: str, password: str | None = None) -> bool:
+        """True si el slskd gestionado por la app ya corre con estas credenciales."""
+        if self.process is None or self.process.poll() is not None or self._running_credentials is None:
+            return False
+        running_user, running_password = self._running_credentials
+        return running_user == username and (not password or running_password == password)
+
     def validate_credentials(
         self,
         username: str | None = None,

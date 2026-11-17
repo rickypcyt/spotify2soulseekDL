@@ -334,7 +334,40 @@ class SpotifyAuthManager:
             raise RuntimeError("El track encontrado no tiene portada en Spotify.")
         return images[0]["url"]
 
-    def playlists(self) -> tuple[list[dict[str, str]], str | None]:
+    def search_cover_candidates(self, query: str, limit: int = 8) -> list[dict[str, str]]:
+        """Devuelve varias portadas candidatas (una por álbum) para elegir a mano."""
+        config = self.state.config_store.get()
+        client_id = config.get("spotify_client_id", "")
+        client_secret = self.state.config_store.get_secret("spotify_client_secret")
+        if not client_id or not client_secret:
+            raise RuntimeError("Configura Spotify Client ID y Client Secret en Configuración.")
+        auth = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
+        spotify = spotipy.Spotify(auth_manager=auth)
+        items = spotify.search(q=query, type="track", limit=limit).get("tracks", {}).get("items", [])
+        candidates: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for track in items:
+            album = track.get("album") or {}
+            images = [image for image in (album.get("images") or []) if image.get("url")]
+            if not images:
+                continue
+            full = images[0]["url"]
+            if full in seen:
+                continue
+            seen.add(full)
+            # Miniatura: la imagen más cercana a 300 px, para que la rejilla cargue rápido.
+            thumb = min(images, key=lambda image: abs((image.get("width") or 640) - 300))["url"]
+            candidates.append({
+                "track_name": str(track.get("name") or ""),
+                "artists": ", ".join(artist.get("name", "") for artist in track.get("artists", [])),
+                "album": str(album.get("name") or ""),
+                "year": str(album.get("release_date") or "")[:4],
+                "cover_url": full,
+                "thumb_url": thumb,
+            })
+        return candidates
+
+    def playlists(self) -> tuple[list[dict], str | None]:
         """Return (playlists, error_message)."""
         try:
             auth = self._oauth()
@@ -344,15 +377,20 @@ class SpotifyAuthManager:
             spotify = spotipy.Spotify(auth_manager=auth)
             current_user = spotify.current_user()
             owner_id = current_user.get("id")
-            playlists: list[dict[str, str]] = []
+            playlists: list[dict] = []
             response = spotify.current_user_playlists(limit=50)
             while response and len(playlists) < 500:
                 for playlist in response.get("items", []):
                     if not playlist or not playlist.get("id"):
                         continue
-                    playlist_owner = (playlist.get("owner") or {}).get("id")
-                    if owner_id and playlist_owner != owner_id:
-                        continue
+                    owner = playlist.get("owner") or {}
+                    is_mine = bool(owner_id) and owner.get("id") == owner_id
+                    collaborative = bool(playlist.get("collaborative"))
+                    # Tuyas: creadas por ti. Colaborativas: cualquiera con edición
+                    # compartida. Seguidas: de otra persona y que solo sigues.
+                    kind = "collaborative" if collaborative else ("mine" if is_mine else "followed")
+                    images = [image for image in (playlist.get("images") or []) if image.get("url")]
+                    tracks_info = playlist.get("tracks") or playlist.get("items") or {}
                     playlists.append({
                         "id": playlist["id"],
                         "name": playlist.get("name") or "Sin nombre",
@@ -360,6 +398,10 @@ class SpotifyAuthManager:
                             "spotify",
                             f"https://open.spotify.com/playlist/{playlist['id']}",
                         ),
+                        "kind": kind,
+                        "owner": owner.get("display_name") or owner.get("id") or "",
+                        "image": images[-1]["url"] if images else "",
+                        "track_count": tracks_info.get("total") if isinstance(tracks_info, dict) else None,
                     })
                 if not response.get("next"):
                     break

@@ -39,16 +39,17 @@ Expand-Archive soulseek.zip -DestinationPath .
 cd soulseek-spotify2csv-downloader-main
 ```
 
-### 4. Ejecutar el script de inicio
+### 4. Ejecutar
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\start.ps1
+.\dev.ps1      # desarrollo: corre desde fuente, arranque rápido
+.\build.ps1    # build final: genera dist\spotify2soulseek.exe
 ```
 
 `Set-ExecutionPolicy` solo es necesario en cada terminal nueva para permitir ejecutar el script.
 
-En la primera ejecución, `start.ps1`:
+En la primera ejecución, `build.ps1`:
 
 1. Comprueba si existen Python 3.13 y Node.js; si faltan, pregunta si quieres instalarlos automáticamente con `winget`.
 2. Instala las dependencias de Python (`config/requirements.txt`) y del frontend (`npm install`).
@@ -71,7 +72,7 @@ http://127.0.0.1:5000/
 
 Para volver a abrir la app más tarde puedes:
 
-- Ejecutar `.\start.ps1` otra vez, o
+- Ejecutar `.\dev.ps1` otra vez, o
 - Hacer doble clic en `dist\spotify2soulseek.exe`.
 
 ### 6. Configuración inicial
@@ -93,12 +94,12 @@ Después, dentro de la aplicación, abre **Settings** y completa:
 
 La URL interna habitual de `slskd` es `http://127.0.0.1:5030`; su API key se genera y administra internamente, no hace falta editar `slskd.yml`.
 
-### Opciones del script
+### Scripts
 
 ```powershell
-.\start.ps1 -Force      # reinstala dependencias y reempaqueta el exe
-.\start.ps1 -Yes        # no pregunta antes de instalar con winget
-.\start.ps1 -SkipBuild  # salta el build y ejecuta desde fuente (misma db que el exe)
+.\dev.ps1           # desde fuente, misma base de datos que el exe (dist/data)
+.\build.ps1         # empaqueta el exe (no lo abre)
+.\build.ps1 -Force  # reinstala dependencias y recompila todo
 ```
 
 Con `-SkipBuild` no se compila el frontend ni se empaqueta: el backend corre directamente con `py -3.13 -m backend.spotify_web` y sirve el último `frontend/dist` disponible. Usa la misma base de datos que el exe (`dist/data`), así que la configuración y la biblioteca se comparten entre ambos modos. Si nunca se ha compilado el frontend, se compila una única vez.
@@ -192,7 +193,7 @@ Flask sirve el build de `frontend/dist` y registra los blueprints de la API. El 
 
 - Windows 10/11.
 - PowerShell.
-- `winget` (App Installer) para que `start.ps1` instale automáticamente Python 3.13 y Node.js si faltan; también pueden instalarse manualmente.
+- `winget` (App Installer) para que los scripts instalen automáticamente Python 3.13 y Node.js si faltan; también pueden instalarse manualmente.
 - `git` para clonar el repositorio (opcional: se puede descargar como ZIP).
 - Cuenta de Spotify Developer si se van a cargar playlists privadas o datos que requieran autorización.
 - Cuenta de Soulseek para realizar búsquedas y descargas.
@@ -440,7 +441,8 @@ tests/                      # Tests Python
 config/                     # requirements.txt y pyproject.toml
 packaging/soulseek.spec     # Configuración de PyInstaller
 data/                       # Datos de runtime (soulseek.db, config, logs)
-start.ps1                   # Instalación, build, empaquetado y arranque
+dev.ps1 / build.ps1          # desarrollo desde fuente / build final del exe
+_common.ps1                   # funciones compartidas por los scripts
 ```
 
 ## Seguridad y responsabilidad

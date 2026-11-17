@@ -12,9 +12,11 @@ from backend.routes import (
     config_routes,
     diagnostics,
     download,
+    external_library,
     files,
     library,
     logs,
+    network,
     pages,
     preview,
     search,
@@ -38,3 +40,5 @@ def register_blueprints(app: Flask, state: RuntimeState) -> None:
     app.register_blueprint(diagnostics.create_blueprint(state))
     app.register_blueprint(storage.create_blueprint(state))
     app.register_blueprint(update.create_blueprint(state))
+    app.register_blueprint(network.create_blueprint(state))
+    app.register_blueprint(external_library.create_blueprint(state))

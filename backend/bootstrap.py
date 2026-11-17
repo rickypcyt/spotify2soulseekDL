@@ -148,6 +148,10 @@ def ensure_slskd(config_store) -> Path | None:
     # 1. Already configured and still present?
     config = config_store.get()
     configured = config.get("slskd_path", "")
+    # Una ruta dentro de la carpeta temporal de PyInstaller (_MEI…) muere al cerrar la app:
+    # se ignora y se vuelve a resolver la copia estable.
+    if "_MEI" in configured.replace("/", "\\"):
+        configured = ""
     if configured and os.path.isfile(configured):
         print(f"[bootstrap] slskd configurado: {configured}")
         return Path(configured)

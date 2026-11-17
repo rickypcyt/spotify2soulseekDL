@@ -227,10 +227,12 @@ def main() -> None:
             print("\n[salida] Cerrando spotify2soulseek...")
             return
 
-    if not dev_mode:
+    if os.getenv("SOULSEEK_NO_BROWSER") == "1":
+        print(f"[startup] API lista en {url} (el navegador lo abre el servidor de Vite)")
+    elif not dev_mode:
         print(f"[startup] Abriendo navegador en {url} ...")
         _open_browser_delayed(url)
-    else:
+    if dev_mode:
         print(f"[startup] Modo desarrollo: abre {url} manualmente")
 
     try:

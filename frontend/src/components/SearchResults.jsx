@@ -1,3 +1,4 @@
+import AudioPlayer from './AudioPlayer'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Clock3, RefreshCw } from 'lucide-react'
 import { requestJson } from '../api/client'
@@ -247,14 +248,13 @@ export default function SearchResults({
               {activePreview.state === 'completado' && activePreview.path && (
                 <>
                   <div className="mt-1 flex items-center gap-2">
-                    <audio
-                      ref={audioRef}
-                      controls
+                    <AudioPlayer
+                      audioRef={audioRef}
+                      size="sm"
                       src={activePreview.savedPath
                         ? storedFileStreamUrl('downloads', activePreview.savedPath)
                         : `/api/preview/stream?path=${encodeURIComponent(activePreview.path)}`}
-                      preload="none"
-                      className="h-8 min-w-0 flex-1"
+                      className="min-w-0 flex-1"
                     />
                     <button
                       type="button"

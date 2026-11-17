@@ -14,7 +14,7 @@ export function StatusDot({ ok }) {
   )
 }
 
-export function Checkbox({ checked, indeterminate = false, onChange, title, size = 12, disabled = false }) {
+export function Checkbox({ checked, indeterminate = false, onChange, title, size = 20, disabled = false }) {
   const inputRef = useRef(null)
 
   useEffect(() => {
@@ -41,18 +41,18 @@ export function Checkbox({ checked, indeterminate = false, onChange, title, size
         className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 focus:outline-none disabled:cursor-not-allowed"
       />
       <span
-        className={`absolute inset-0 z-0 flex items-center justify-center rounded-[2px] border transition-colors ${
+        className={`absolute inset-0 z-0 flex items-center justify-center rounded-md border-2 transition-colors ${
           disabled ? 'opacity-50' : ''
         } ${
           isActive
-            ? 'border-[#FFFFFF] bg-[#FFFFFF] text-[#161822]'
-            : 'border-[#565C6E] bg-[#0D0F16] text-transparent peer-hover:border-[#8D93A6]'
-        } peer-focus-visible:ring-2 peer-focus-visible:ring-[#FFFFFF]/50`}
+            ? 'border-[#7FD8CC] bg-[#7FD8CC] text-[#10121A]'
+            : 'border-[#565C6E] bg-[#0F1117] text-transparent peer-hover:border-[#7FD8CC]/70'
+        } peer-focus-visible:ring-2 peer-focus-visible:ring-[#7FD8CC]/50`}
       >
         {indeterminate ? (
-          <Minus size={size - 6} strokeWidth={3} />
+          <Minus size={Math.round(size * 0.7)} strokeWidth={3} />
         ) : checked ? (
-          <Check size={size - 6} strokeWidth={3.5} />
+          <Check size={Math.round(size * 0.7)} strokeWidth={3.5} />
         ) : null}
       </span>
     </span>

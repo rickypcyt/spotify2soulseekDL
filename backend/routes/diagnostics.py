@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from flask import Blueprint, jsonify
 
+from backend.audio_info import audio_info
+
 if TYPE_CHECKING:
     from backend.runtime import RuntimeState
 
@@ -38,7 +40,7 @@ def create_blueprint(state: RuntimeState) -> Blueprint:
                         rel = os.path.relpath(full, downloads_dir).replace("\\", "/")
                         if rel.split("/")[0].lower() in {"temp", ".incomplete"}:
                             continue
-                        downloads_files.append({"path": rel, "size": os.path.getsize(full), "dir": "downloads"})
+                        downloads_files.append({"path": rel, "size": os.path.getsize(full), "dir": "downloads", **audio_info(full)})
             transfers = state.slskd.active_transfers()
             current_config = state.config_store.get()
             slskd_path = current_config.get("slskd_path", "")

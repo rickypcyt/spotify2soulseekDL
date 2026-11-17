@@ -1,5 +1,7 @@
-import LibraryAudioCard from './LibraryAudioCard'
-import { FONT_MONO, formatSize } from '../constants'
+import { Trash2 } from 'lucide-react'
+import { useConfirm } from './ConfirmDialog.jsx'
+import { formatSize } from '../constants'
+import TempFileCard from './TempFileCard'
 
 export default function TemporalesPanel({
   diagnostics,
@@ -7,64 +9,115 @@ export default function TemporalesPanel({
   previewFiles = [],
   storedFileStreamUrl,
   onSaveTemporaryPreview,
-  quickSaveLabel = '',
-  onQuickSave,
   localPlaylists = [],
   onSearchCover,
   onRevealFile,
   onDeleteFile,
+  embedded = false,
 }) {
-  return (
-    <div className="flex w-full min-w-0 flex-col rounded-lg border border-[#2C303D]">
-      <div className="flex items-center justify-between border-b border-[#2C303D] px-3 py-2">
-        <h2 className="text-xs text-[#8D93A6]">temporales</h2>
-        <button
-          onClick={onCleanupAll}
-          className="rounded border border-[#FFFFFF]/40 px-2 py-1 text-[10px] text-[#FFFFFF] transition-colors hover:bg-[#FFFFFF]/10"
-        >
-          limpiar todo
-        </button>
-      </div>
-      <div className="bg-[#0D0F16] p-3 text-[11px] text-[#E9EAF0]">
+  const confirm = useConfirm()
+  const hasFiles = previewFiles.length > 0
+
+  if (embedded) {
+    return (
+      <div className="w-full min-w-0">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-xs text-[#8D93A6]">Arrastra un archivo a una playlist o elige carpeta para guardarlo.</p>
+          {hasFiles && (
+            <button
+              type="button"
+              onClick={onCleanupAll}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[#2C303D] px-3 py-1.5 text-xs text-[#8D93A6] transition-colors hover:border-red-400/60 hover:text-red-300"
+            >
+              <Trash2 size={13} />
+              Limpiar todo
+            </button>
+          )}
+        </div>
         {!diagnostics ? (
-          <p className="text-[#8D93A6]" style={{ fontFamily: FONT_MONO }}>cargando…</p>
+          <p className="text-sm text-[#8D93A6]">Cargando…</p>
+        ) : !hasFiles ? (
+          <p className="rounded-lg border border-dashed border-[#2C303D] px-4 py-8 text-center text-sm text-[#8D93A6]">No hay archivos temporales.</p>
         ) : (
           <div className="space-y-3">
-            {diagnostics.previews?.length > 0 && (
-              <div>
-                <p className="mb-1 text-[#8D93A6]" style={{ fontFamily: FONT_MONO }}>previews</p>
-                <div className="grid grid-cols-2 gap-3">
-                  {previewFiles.map((f) => (
-                    <div key={f.path} className="min-w-0">
-                      <LibraryAudioCard
-                        file={{ ...f, name: f.path.split('/').pop() || f.path }}
-                        streamUrl={storedFileStreamUrl('previews', f.path)}
-                        coverUrl={`/api/library/cover?dir=previews&path=${encodeURIComponent(f.path)}`}
-                        onDownload={onSaveTemporaryPreview}
-                        quickSaveLabel={quickSaveLabel}
-                        onQuickSave={onQuickSave}
-                        downloadPlaylists={localPlaylists}
-                        onSearchCover={onSearchCover}
-                        onRevealFile={onRevealFile}
-                        downloadLabel="guardar en otra carpeta"
-                        layout="horizontal"
-                        formatSize={formatSize}
-                        dragDir="previews"
-                        onDelete={(path) => {
-                          if (confirm(`¿Borrar ${path}?`)) onDeleteFile(path, 'previews')
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {diagnostics.previews?.length === 0 && (
-              <p className="text-[#8D93A6]" style={{ fontFamily: FONT_MONO }}>sin temporales</p>
-            )}
+            {previewFiles.map((file) => (
+              <TempFileCard
+                key={file.path}
+                file={{ ...file, name: file.path.split('/').pop() || file.path }}
+                streamUrl={storedFileStreamUrl('previews', file.path)}
+                coverUrl={`/api/library/cover?dir=previews&path=${encodeURIComponent(file.path)}`}
+                folders={localPlaylists}
+                formatSize={formatSize}
+                onSave={onSaveTemporaryPreview}
+                onSearchCover={onSearchCover}
+                onReveal={onRevealFile}
+                onDelete={async (path) => {
+                  if (await confirm(`¿Borrar ${path}?`, { title: 'Borrar archivo', confirmLabel: 'Borrar' })) onDeleteFile(path, 'previews')
+                }}
+              />
+            ))}
           </div>
         )}
       </div>
-    </div>
+    )
+  }
+
+  return (
+    <section className="flex w-full min-w-0 flex-col rounded-xl border border-[#2C303D] bg-[#161822]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#2C303D] px-5 py-4">
+        <div>
+          <h2 className="flex items-center gap-2.5 text-lg font-semibold text-[#E9EAF0]">
+            Temporales
+            {hasFiles && (
+              <span className="rounded-full border border-[#3A3F4E] px-2.5 py-0.5 text-xs font-normal text-[#8D93A6]">
+                {previewFiles.length}
+              </span>
+            )}
+          </h2>
+          <p className="mt-1 text-sm text-[#8D93A6]">
+            Archivos de prueba. Elige una carpeta y guárdalos para conservarlos; los que no guardes se pueden limpiar.
+          </p>
+        </div>
+        {hasFiles && (
+          <button
+            type="button"
+            onClick={onCleanupAll}
+            className="flex items-center gap-2 rounded-lg border border-[#2C303D] px-4 py-2.5 text-sm text-[#8D93A6] transition-colors hover:border-red-400/60 hover:text-red-300"
+          >
+            <Trash2 size={15} />
+            Limpiar todo
+          </button>
+        )}
+      </div>
+
+      <div className="p-5">
+        {!diagnostics ? (
+          <p className="text-sm text-[#8D93A6]">Cargando…</p>
+        ) : !hasFiles ? (
+          <p className="rounded-lg border border-dashed border-[#2C303D] px-4 py-8 text-center text-sm text-[#8D93A6]">
+            No hay archivos temporales.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+            {previewFiles.map((file) => (
+              <TempFileCard
+                key={file.path}
+                file={{ ...file, name: file.path.split('/').pop() || file.path }}
+                streamUrl={storedFileStreamUrl('previews', file.path)}
+                coverUrl={`/api/library/cover?dir=previews&path=${encodeURIComponent(file.path)}`}
+                folders={localPlaylists}
+                formatSize={formatSize}
+                onSave={onSaveTemporaryPreview}
+                onSearchCover={onSearchCover}
+                onReveal={onRevealFile}
+                onDelete={async (path) => {
+                  if (await confirm(`¿Borrar ${path}?`, { title: 'Borrar archivo', confirmLabel: 'Borrar' })) onDeleteFile(path, 'previews')
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   )
 }

@@ -46,7 +46,7 @@ def data_dir() -> Path:
     """Writable directory for persistent user data (db, config, logs).
 
     ``data/`` next to the .exe when frozen, ``data/`` under the repo root in dev.
-    ``SOULSEEK_DATA_DIR`` overrides the location (used by ``start.ps1 -SkipBuild``
+    ``SOULSEEK_DATA_DIR`` overrides the location (used by ``dev.ps1``
     to share the same database as the packaged exe).
     Files created by older versions at the root are migrated on first access.
     """

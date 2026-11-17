@@ -27,7 +27,28 @@ def _is_soundcloud_url(url: str) -> bool:
     return bool(re.match(r"^https?://(www\.)?soundcloud\.com/", url, re.IGNORECASE))
 
 
-def _lucida_command() -> list[str]:
+_SHORT_HOSTS = ("on.soundcloud.com", "m.soundcloud.com", "soundcloud.app.goo.gl")
+
+
+def _resolve_short_url(url: str) -> str:
+    """Los links compartidos (on.soundcloud.com/xxx) redirigen a la URL real."""
+    url = url.strip()
+    host = re.match(r"^https?://([^/]+)/", url + "/", re.IGNORECASE)
+    if not host or host.group(1).lower() not in _SHORT_HOSTS:
+        return url
+    import requests
+
+    try:
+        response = requests.get(url, allow_redirects=True, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+        final = response.url.split("?")[0]
+        if _is_soundcloud_url(final) and "on.soundcloud.com" not in final:
+            return final
+    except requests.RequestException:
+        pass
+    return url
+
+
+def _lucida_command()-> list[str]:
     for executable in ("lucida", "lucidadl"):
         if shutil.which(executable):
             return [executable]
@@ -105,6 +126,7 @@ def _download_soundcloud_track(url: str, output_dir: Path) -> str:
 
 
 def download_soundcloud(url: str, output_dir: Path) -> str:
+    url = _resolve_short_url(url)
     if not _is_soundcloud_url(url):
         raise SoundCloudServiceError("La URL no parece ser de SoundCloud.")
 

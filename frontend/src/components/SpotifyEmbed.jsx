@@ -1,3 +1,4 @@
+import AudioPlayer from './AudioPlayer'
 import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import PlaylistSelectModal from './PlaylistSelectModal'
@@ -55,12 +56,11 @@ export default function SpotifyEmbed({
         embedFrame
       ) : previewUrl ? (
         <div className="flex items-center gap-2">
-          <audio
+          <AudioPlayer
             key={reloadKey}
-            controls
+            size="sm"
             src={previewUrl}
-            preload="none"
-            className="h-8 min-w-0 flex-1"
+            className="min-w-0 flex-1"
           />
           <button
             type="button"

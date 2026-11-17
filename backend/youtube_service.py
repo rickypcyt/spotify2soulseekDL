@@ -92,16 +92,51 @@ def _ffmpeg_location() -> str | None:
         return None
 
 
+DENO_DOWNLOAD_URL = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+
+
+def _download_deno() -> str | None:
+    """YouTube exige un runtime de JavaScript para resolver los desafíos de
+    firma; sin él yt-dlp termina en 403. Se baja deno una sola vez."""
+    if sys.platform != "win32":
+        return None
+    import io
+    import zipfile
+
+    target = _ytdlp_dir() / "deno.exe"
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        response = requests.get(DENO_DOWNLOAD_URL, timeout=180)
+        response.raise_for_status()
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            target.write_bytes(archive.read("deno.exe"))
+        return str(target)
+    except (OSError, KeyError, zipfile.BadZipFile, requests.RequestException):
+        target.unlink(missing_ok=True)
+        return None
+
+
+def _find_js_runtime() -> tuple[str, str] | None:
+    local_deno = _ytdlp_dir() / "deno.exe"
+    if local_deno.is_file():
+        return "deno", str(local_deno)
+    for runtime, executable in (("deno", "deno"), ("node", "node"), ("bun", "bun"), ("quickjs", "qjs")):
+        path = shutil.which(executable)
+        if path:
+            return runtime, path
+    downloaded = _download_deno()
+    return ("deno", downloaded) if downloaded else None
+
+
 def _youtube_options(ytdlp: str) -> list[str]:
     help_result = subprocess.run([ytdlp, "--help"], capture_output=True, text=True, timeout=15, check=False)
     help_text = f"{help_result.stdout}\n{help_result.stderr}"
     options = ["--no-update"]
-    runtimes = (("deno", "deno"), ("node", "node"), ("bun", "bun"), ("quickjs", "qjs"))
-    for runtime, executable in runtimes:
-        path = shutil.which(executable)
-        if path and "--js-runtimes" in help_text:
+    found = _find_js_runtime()
+    if found:
+        runtime, path = found
+        if "--js-runtimes" in help_text:
             options.extend(["--js-runtimes", f"{runtime}:{path}"])
-            break
     if "--remote-components" in help_text:
         options.extend(["--remote-components", "ejs:github"])
     return options

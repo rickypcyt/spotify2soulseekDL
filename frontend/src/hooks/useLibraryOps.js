@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react'
+import { useConfirm } from '../components/ConfirmDialog.jsx'
 import { toast } from 'react-toastify'
 import { request, requestJson } from '../api/client'
 
 export function useLibraryOps({ fetchDiagnostics }) {
+  const confirm = useConfirm()
   const [newLibraryFolderName, setNewLibraryFolderName] = useState('')
   const [dragOverLibraryFolder, setDragOverLibraryFolder] = useState(null)
 
@@ -23,7 +25,7 @@ export function useLibraryOps({ fetchDiagnostics }) {
   }, [fetchDiagnostics])
 
   const cleanupAll = useCallback(async () => {
-    if (!confirm('¿Borrar todos los temporales e incompletos?')) return
+    if (!await confirm('¿Borrar todos los temporales e incompletos?', { title: 'Limpiar temporales', confirmLabel: 'Limpiar' })) return
     try {
       await request('/api/cleanup', { method: 'POST' })
       fetchDiagnostics()
@@ -144,6 +146,21 @@ export function useLibraryOps({ fetchDiagnostics }) {
     }
   }, [newLibraryFolderName, fetchDiagnostics])
 
+  const deleteLibraryFolder = useCallback(async (folderName) => {
+    if (!await confirm(`¿Eliminar la playlist vacía «${folderName}»?`, { title: 'Eliminar playlist', confirmLabel: 'Eliminar' })) return
+    try {
+      await requestJson('/api/library/folder/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_name: folderName }),
+      })
+      await fetchDiagnostics()
+      toast.success(`Playlist eliminada: ${folderName}`)
+    } catch (err) {
+      toast.error('No se pudo eliminar la playlist: ' + err.message)
+    }
+  }, [fetchDiagnostics])
+
   return {
     newLibraryFolderName,
     setNewLibraryFolderName,
@@ -156,5 +173,6 @@ export function useLibraryOps({ fetchDiagnostics }) {
     moveLibraryFile,
     renameLibraryFile,
     createLibraryFolder,
+    deleteLibraryFolder,
   }
 }

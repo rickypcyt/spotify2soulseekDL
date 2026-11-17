@@ -142,6 +142,26 @@ select {
     box-shadow var(--ui-transition-fast);
 }
 
+/*
+ * Input "desnudo": para campos que viven dentro de un contenedor que ya dibuja
+ * el borde/fondo (p. ej. buscadores con icono). Sin esta excepción el borde
+ * global se suma al del contenedor y se ve doble.
+ */
+input.input-bare {
+  min-height: 0;
+  padding: 0;
+  border: none !important;
+  border-radius: 0;
+  background-color: transparent !important;
+  box-shadow: none;
+}
+
+input.input-bare:hover:not(:disabled),
+input.input-bare:focus {
+  border: none !important;
+  outline: none;
+}
+
 input::placeholder {
   color: var(--ui-subtle);
 }
@@ -251,4 +271,73 @@ body {
 html::-webkit-scrollbar,
 body::-webkit-scrollbar {
   display: none;
+}
+
+/* ==========================================================================
+   Reproductor propio (AudioPlayer)
+   ========================================================================== */
+
+button.player-play {
+  min-height: 0;
+  padding: 0;
+  border: none !important;
+  background-color: #ffffff !important;
+  color: #161822 !important;
+}
+
+button.player-play:hover:not(:disabled) {
+  border-color: transparent !important;
+  background-color: #e9eaf0 !important;
+}
+
+input[type="range"].player-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  min-height: 0;
+  padding: 0;
+  border: none !important;
+  border-radius: 999px;
+  background-color: transparent !important;
+  background-image: linear-gradient(to right, #7fd8cc var(--fill, 0%), #2c303d var(--fill, 0%)) !important;
+  cursor: pointer;
+}
+
+input[type="range"].player-range:hover:not(:disabled) {
+  border: none !important;
+}
+
+input[type="range"].player-range:focus {
+  border: none !important;
+  outline: none;
+}
+
+input[type="range"].player-range:focus-visible {
+  outline: 2px solid rgba(127, 216, 204, 0.6);
+  outline-offset: 4px;
+}
+
+input[type="range"].player-range:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+input[type="range"].player-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(22, 24, 34, 0.6);
+}
+
+input[type="range"].player-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(22, 24, 34, 0.6);
 }
