@@ -1,12 +1,41 @@
 import AudioPlayer from './AudioPlayer'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Clock3, RefreshCw } from 'lucide-react'
+import { ChevronDown, Clock3, Download, Folder, Gauge, HardDrive, Loader2, RefreshCw, Sparkles, X } from 'lucide-react'
 import { requestJson } from '../api/client'
 import { Chip } from './ui'
 import PlaylistSelectModal from './PlaylistSelectModal'
 import SearchActions from './SearchActions'
 import { FONT_MONO, RESULTS_PER_TRACK, formatResultDuration, formatSize, formatSpeed } from '../constants'
 import { extOf, pickBest, rankResults } from '../utils/resultPicker'
+
+const LOSSLESS_EXTS = new Set(['flac', 'wav', 'alac', 'aiff', 'aif', 'ape', 'wv'])
+
+function splitPath(fullName) {
+  const parts = String(fullName).split(/[\\/]/).filter(Boolean)
+  const file = parts.pop() || String(fullName)
+  const base = file.replace(/\.[a-z0-9]{2,5}$/i, '') || file
+  // Solo las dos últimas carpetas: suelen ser "Artista\Álbum".
+  const folder = parts.slice(-2).join(' / ')
+  return { base, folder }
+}
+
+function qualityTier(res) {
+  const ext = extOf(res)
+  const kbps = res.bitrate ? Math.round(res.bitrate / 1000) : null
+  if (LOSSLESS_EXTS.has(ext)) {
+    const depth = res.bitDepth || res.bit_depth
+    const rate = res.sampleRate || res.sample_rate
+    const sub = depth && rate ? `${depth}/${Math.round(rate / 100) / 10}` : 'lossless'
+    return { sub, label: 'Sin pérdida', badge: 'border-[#7FD8CC]/40 bg-[#7FD8CC]/10 text-[#7FD8CC]' }
+  }
+  if (kbps && kbps >= 256) {
+    return { sub: `${kbps}k`, label: `${kbps} kbps`, badge: 'border-[#FFFFFF]/25 bg-[#FFFFFF]/[0.07] text-[#E9EAF0]' }
+  }
+  if (kbps) {
+    return { sub: `${kbps}k`, label: `${kbps} kbps · calidad baja`, badge: 'border-amber-400/40 bg-amber-400/10 text-amber-200' }
+  }
+  return { sub: '—', label: 'Bitrate desconocido', badge: 'border-[#3A3F4E] bg-[#161822] text-[#8D93A6]' }
+}
 
 function formatEta(seconds) {
   if (!Number.isFinite(seconds) || seconds <= 0) return null
@@ -179,69 +208,119 @@ export default function SearchResults({
         const presenceTitle = eta
           ? `Usuario ${presence} · descarga aproximada: ${eta}`
           : `Usuario ${presence}`
+        const fullName = res.filename || res.file || res.name || res.path || `Resultado ${i + 1}`
+        const { base, folder } = splitPath(fullName)
+        const ext = extOf(res)
+        const quality = qualityTier(res)
+        const isBest = res === bestPick
+        const duration = formatResultDuration(res)
+        const isTransferring = isThisPreview && ['encolando', 'descargando'].includes(activePreview.state)
+        const previewProgress = isTransferring ? Math.min(100, Math.max(0, Number(activePreview.percent || 0))) : 0
         return (
         <div
           key={`${res.username || 'unknown'}|${res.filename || res.path || i}|${res.size || 0}`}
-          className="fade-in rounded-md border border-[#2C303D] bg-[#0D0F16] p-2.5"
+          className={`fade-in relative overflow-hidden rounded-lg border p-2.5 transition-colors ${isBest
+            ? 'border-[#7FD8CC]/45 bg-[#7FD8CC]/[0.04] hover:border-[#7FD8CC]/70'
+            : isThisPreview
+              ? 'border-[#3A3F4E] bg-[#12141C]'
+              : 'border-[#2C303D] bg-[#0F1117] hover:border-[#3A3F4E] hover:bg-[#12141C]'}`}
           style={{ animationDelay: `${i * 60}ms` }}
         >
-          <p className="whitespace-normal break-words [overflow-wrap:anywhere] text-[13px] leading-snug text-[#E9EAF0]" title={res.filename || res.file || res.name || res.path}>
-            {res === bestPick && (
-              <span className="mr-1.5 rounded bg-[#FFFFFF] px-1 py-0.5 text-[9px] font-semibold text-[#161822]">
-                Recomendado
-              </span>
-            )}
-            {res.filename || res.file || res.name || res.path || `Resultado ${i + 1}`}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-[#8D93A6]" style={{ fontFamily: FONT_MONO }}>
-            {res.username && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#3A3F4E] bg-[#161822] px-2.5 py-1 leading-none">
-                <span
-                  aria-label={presenceTitle}
-                  title={presenceTitle}
-                  className={`h-2 w-2 rounded-full ${presences[res.username] === 'Online'
-                    ? 'bg-emerald-400'
-                    : presences[res.username] === 'Away'
-                      ? 'bg-amber-400'
-                      : presences[res.username] === 'Offline'
-                        ? 'bg-slate-500'
-                        : 'bg-slate-600'
-                  }`}
-                />
-                @{res.username}
-              </span>
-            )}
-            {extOf(res) && <span className="inline-flex items-center rounded-full border border-[#FFFFFF]/25 bg-[#FFFFFF]/10 px-2.5 py-1 leading-none text-[#E9EAF0]">{extOf(res).toUpperCase()}</span>}
-            {res.size ? <span className="inline-flex items-center rounded-full border border-[#3A3F4E] bg-[#161822] px-2.5 py-1 leading-none">{formatSize(res.size)}</span> : null}
-            {res.speed ? <span className="inline-flex items-center rounded-full border border-[#3A3F4E] bg-[#161822] px-2.5 py-1 leading-none">{formatSpeed(res.speed)}</span> : null}
-            {res.bitrate ? <span className="inline-flex items-center rounded-full border border-[#3A3F4E] bg-[#161822] px-2.5 py-1 leading-none">{Math.round(res.bitrate / 1000)} kbps</span> : null}
-            {formatResultDuration(res) && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-[#3A3F4E] bg-[#161822] px-2.5 py-1 leading-none">
-                <Clock3 size={12} strokeWidth={1.8} /> duración · {formatResultDuration(res)}
-              </span>
-            )}
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <button
-              onClick={() => onStartPreview(res)}
-              disabled={isBusy}
-              className="rounded border border-[#FFFFFF]/40 px-2 py-1 text-[11px] font-medium text-[#FFFFFF] transition-colors hover:bg-[#FFFFFF]/10 disabled:cursor-not-allowed disabled:opacity-40"
+          <div className="flex items-start gap-2.5">
+            <div
+              className={`flex w-12 shrink-0 flex-col items-center justify-center rounded-md border py-1.5 leading-none ${quality.badge}`}
+              style={{ fontFamily: FONT_MONO }}
+              title={quality.label}
             >
-              Descargar
-            </button>
-            {isThisPreview && activePreview.state !== 'completado' && activePreview.state !== 'error' && (
-              <>
-                {activePreview.state === 'encolando' && <Chip tone="amber">{previewStatusLabel(activePreview)}</Chip>}
-                {activePreview.state === 'descargando' && <Chip tone="amber">{previewStatusLabel(activePreview)}</Chip>}
+              <span className="text-[11px] font-semibold tracking-wide">{(ext || '?').toUpperCase().slice(0, 4)}</span>
+              <span className="mt-1 text-[9px] opacity-75">{quality.sub}</span>
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start gap-1.5">
+                <p className="min-w-0 flex-1 break-words [overflow-wrap:anywhere] text-[13px] font-medium leading-snug text-[#E9EAF0]" title={fullName}>
+                  {base}
+                </p>
+                {isBest && (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#7FD8CC] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#10121A]">
+                    <Sparkles size={9} strokeWidth={2.5} /> Top
+                  </span>
+                )}
+              </div>
+              {folder && (
+                <p className="mt-0.5 flex min-w-0 items-center gap-1 text-[10.5px] text-[#565C6E]" style={{ fontFamily: FONT_MONO }} title={folder}>
+                  <Folder size={10} className="shrink-0" />
+                  <span className="truncate [direction:rtl] text-left">{folder}</span>
+                </p>
+              )}
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#8D93A6]" style={{ fontFamily: FONT_MONO }}>
+                {res.username && (
+                  <span className="inline-flex min-w-0 items-center gap-1.5" title={presenceTitle}>
+                    <span
+                      aria-label={presenceTitle}
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${presences[res.username] === 'Online'
+                        ? 'bg-emerald-400 shadow-[0_0_6px] shadow-emerald-400/60'
+                        : presences[res.username] === 'Away'
+                          ? 'bg-amber-400'
+                          : presences[res.username] === 'Offline'
+                            ? 'bg-slate-500'
+                            : 'bg-slate-600'
+                      }`}
+                    />
+                    <span className="max-w-[140px] truncate">{res.username}</span>
+                  </span>
+                )}
+                {res.size ? (
+                  <span className="inline-flex items-center gap-1"><HardDrive size={11} strokeWidth={1.8} />{formatSize(res.size)}</span>
+                ) : null}
+                {res.speed ? (
+                  <span className="inline-flex items-center gap-1"><Gauge size={11} strokeWidth={1.8} />{formatSpeed(res.speed)}</span>
+                ) : null}
+                {duration && (
+                  <span className="inline-flex items-center gap-1"><Clock3 size={11} strokeWidth={1.8} />{duration}</span>
+                )}
+                {eta && !isTransferring && (
+                  <span className="text-[#565C6E]" title="Tiempo estimado de descarga">~{eta}</span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <button
+                onClick={() => onStartPreview(res)}
+                disabled={isBusy}
+                title="Descargar y previsualizar"
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${isBest
+                  ? 'bg-[#7FD8CC] text-[#10121A] hover:bg-[#9BE3DA]'
+                  : 'bg-[#FFFFFF] text-[#161822] hover:bg-[#E9EAF0]'}`}
+              >
+                {isTransferring ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} strokeWidth={2.2} />}
+                {isTransferring ? 'Bajando' : 'Descargar'}
+              </button>
+              {isThisPreview && activePreview.state !== 'completado' && activePreview.state !== 'error' && (
                 <button
                   onClick={() => onCancelPreview(res)}
-                  className="rounded border border-[#FFFFFF]/40 px-2 py-1 text-[11px] text-[#FFFFFF] transition-colors hover:bg-[#FFFFFF]/10"
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] text-[#8D93A6] transition-colors hover:text-[#F28B82]"
                 >
-                  Cancelar
+                  <X size={11} /> Cancelar
                 </button>
-              </>
-            )}
+              )}
+            </div>
           </div>
+
+          {isTransferring && (
+            <div className="mt-2">
+              <p className="mb-1 text-[10.5px] text-amber-200/90" style={{ fontFamily: FONT_MONO }}>
+                {previewStatusLabel(activePreview)}
+              </p>
+              <div className="h-1 overflow-hidden rounded-full bg-[#2C303D]">
+                <div
+                  className="h-full rounded-full bg-amber-300 transition-[width] duration-500"
+                  style={{ width: `${Math.max(previewProgress, 3)}%` }}
+                />
+              </div>
+            </div>
+          )}
           {isThisPreview && (
             <div className="mt-2">
 
